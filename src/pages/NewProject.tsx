@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, ArrowRight, Check, Store, Image, Grid3X3 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Store, Image, Grid3X3, Plus, Trash2 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import ImageUpload from "@/components/ImageUpload";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,8 @@ export default function NewProject() {
   const [corredorRef, setCorredorRef] = useState<string>();
   const [caixaRef, setCaixaRef] = useState<string>();
   const [vistaRef, setVistaRef] = useState<string>();
+  const [extraRefs, setExtraRefs] = useState<{ id: string; label: string; url?: string }[]>([]);
+  const [nextExtraId, setNextExtraId] = useState(0);
 
   // Step 3
   const [categorias, setCategorias] = useState<ProjectCategory[]>(
@@ -45,9 +47,32 @@ export default function NewProject() {
     );
   };
 
+  const addCategoria = () => {
+    setCategorias((prev) => [
+      ...prev,
+      { id: `custom-${Date.now()}`, name: "", enabled: true, prateleiras: 2, observacao: "" },
+    ]);
+  };
+
+  const removeCategoria = (id: string) => {
+    setCategorias((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const addExtraRef = () => {
+    setExtraRefs((prev) => [...prev, { id: `ref-${nextExtraId}`, label: `Referência Extra ${nextExtraId + 1}` }]);
+    setNextExtraId((n) => n + 1);
+  };
+
+  const removeExtraRef = (id: string) => {
+    setExtraRefs((prev) => prev.filter((r) => r.id !== id));
+  };
+
+  const updateExtraRef = (id: string, url: string | undefined) => {
+    setExtraRefs((prev) => prev.map((r) => (r.id === id ? { ...r, url } : r)));
+  };
+
   const handleSubmit = () => {
-    // In the future, this will send data to n8n webhook
-    console.log("Project submitted:", { nome, cidade, observacoes, categorias });
+    console.log("Project submitted:", { nome, cidade, observacoes, categorias, extraRefs });
     navigate("/");
   };
 
@@ -150,7 +175,27 @@ export default function NewProject() {
                   <ImageUpload label="Corredor Ref." description="Referência de corredor" value={corredorRef} onChange={setCorredorRef} />
                   <ImageUpload label="Caixas Ref." description="Área de caixas" value={caixaRef} onChange={setCaixaRef} />
                   <ImageUpload label="Vista Superior Ref." description="Vista de cima" value={vistaRef} onChange={setVistaRef} />
+                  {extraRefs.map((ref) => (
+                    <div key={ref.id} className="relative">
+                      <ImageUpload
+                        label={ref.label}
+                        description="Referência adicional"
+                        value={ref.url}
+                        onChange={(url) => updateExtraRef(ref.id, url)}
+                      />
+                      <button
+                        onClick={() => removeExtraRef(ref.id)}
+                        className="absolute top-0 right-0 w-6 h-6 rounded-full bg-destructive/80 text-destructive-foreground flex items-center justify-center hover:bg-destructive transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
+                <Button variant="outline" onClick={addExtraRef} className="gap-2 w-full mt-2">
+                  <Plus className="w-4 h-4" />
+                  Adicionar Imagem de Referência
+                </Button>
               </div>
             )}
 
@@ -174,37 +219,68 @@ export default function NewProject() {
                             checked={cat.enabled}
                             onCheckedChange={(v) => updateCategoria(cat.id, "enabled", v)}
                           />
-                          <span className="font-medium text-sm">{cat.name}</span>
-                        </div>
-                        {cat.enabled && (
-                          <div className="flex items-center gap-3">
-                            <label className="text-xs text-muted-foreground">Gôndolas:</label>
+                          {cat.id.startsWith("custom-") ? (
                             <Input
-                              type="number"
-                              min={1}
-                              max={20}
-                              value={cat.prateleiras}
-                              onChange={(e) =>
-                                updateCategoria(cat.id, "prateleiras", parseInt(e.target.value) || 1)
-                              }
-                              className="w-16 h-8 text-center text-sm"
+                              value={cat.name}
+                              onChange={(e) => updateCategoria(cat.id, "name", e.target.value)}
+                              placeholder="Nome da categoria..."
+                              className="text-sm h-8 w-40"
                             />
-                          </div>
-                        )}
+                          ) : (
+                            <span className="font-medium text-sm">{cat.name}</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {cat.enabled && (
+                            <>
+                              <label className="text-xs text-muted-foreground">Gôndolas:</label>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={20}
+                                value={cat.prateleiras}
+                                onChange={(e) =>
+                                  updateCategoria(cat.id, "prateleiras", parseInt(e.target.value) || 1)
+                                }
+                                className="w-16 h-8 text-center text-sm"
+                              />
+                            </>
+                          )}
+                          {cat.id.startsWith("custom-") && (
+                            <button
+                              onClick={() => removeCategoria(cat.id)}
+                              className="w-7 h-7 rounded-full bg-destructive/10 text-destructive flex items-center justify-center hover:bg-destructive/20 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       {cat.enabled && (
-                        <div className="mt-3">
+                        <div className="mt-3 space-y-3">
                           <Input
                             value={cat.observacao}
                             onChange={(e) => updateCategoria(cat.id, "observacao", e.target.value)}
                             placeholder="Observações sobre este setor..."
                             className="text-sm h-8"
                           />
+                          <div className="max-w-[200px]">
+                            <ImageUpload
+                              label="Ref. da Gôndola"
+                              description="Imagem de referência"
+                              value={cat.refImage}
+                              onChange={(url) => updateCategoria(cat.id, "refImage", url)}
+                            />
+                          </div>
                         </div>
                       )}
                     </div>
                   ))}
                 </div>
+                <Button variant="outline" onClick={addCategoria} className="gap-2 w-full mt-2">
+                  <Plus className="w-4 h-4" />
+                  Adicionar Categoria
+                </Button>
               </div>
             )}
           </motion.div>
