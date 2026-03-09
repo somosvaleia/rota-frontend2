@@ -337,9 +337,9 @@ export default function NewProject() {
               <ArrowRight className="w-4 h-4" />
             </Button>
           ) : (
-            <Button onClick={handleSubmit} className="gap-2">
+            <Button onClick={handleSubmit} disabled={submitting} className="gap-2">
               <Check className="w-4 h-4" />
-              Criar Projeto
+              {submitting ? "Enviando..." : "Criar Projeto"}
             </Button>
           )}
         </div>
