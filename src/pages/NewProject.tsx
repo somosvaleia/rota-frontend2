@@ -71,9 +71,43 @@ export default function NewProject() {
     setExtraRefs((prev) => prev.map((r) => (r.id === id ? { ...r, url } : r)));
   };
 
-  const handleSubmit = () => {
-    console.log("Project submitted:", { nome, cidade, observacoes, categorias, extraRefs });
-    navigate("/");
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    setSubmitting(true);
+    try {
+      const payload = {
+        nome_mercado: nome,
+        cidade,
+        observacoes,
+        categorias: categorias.filter((c) => c.enabled),
+        imagens: {
+          logo,
+          planta,
+          fachada_ref: fachadaRef,
+          interno_ref: internoRef,
+          corredor_ref: corredorRef,
+          caixa_ref: caixaRef,
+          vista_superior_ref: vistaRef,
+          extras: extraRefs.filter((r) => r.url).map((r) => ({ label: r.label, url: r.url })),
+        },
+      };
+
+      const res = await fetch("https://api.rota.valeia.space/webhook/rota/projeto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error(`Erro ${res.status}`);
+
+      navigate("/");
+    } catch (err) {
+      console.error("Erro ao enviar projeto:", err);
+      alert("Erro ao enviar o projeto. Tente novamente.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -303,9 +337,9 @@ export default function NewProject() {
               <ArrowRight className="w-4 h-4" />
             </Button>
           ) : (
-            <Button onClick={handleSubmit} className="gap-2">
+            <Button onClick={handleSubmit} disabled={submitting} className="gap-2">
               <Check className="w-4 h-4" />
-              Criar Projeto
+              {submitting ? "Enviando..." : "Criar Projeto"}
             </Button>
           )}
         </div>
