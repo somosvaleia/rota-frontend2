@@ -93,7 +93,8 @@ export default function NewProject() {
         },
       };
 
-      const res = await fetch("https://api.rota.valeia.space/webhook/rota/projeto", {
+      const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://api.rota.valeia.space/webhook/rota/projeto2';
+      const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
