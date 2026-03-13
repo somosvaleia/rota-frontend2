@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
-import { Upload, X, Image as ImageIcon } from "lucide-react";
+import { X, Image as ImageIcon, Loader2 } from "lucide-react";
+import { uploadImage } from "@/lib/uploadImage";
 
 interface ImageUploadProps {
   label: string;
@@ -10,24 +11,20 @@ interface ImageUploadProps {
 
 export default function ImageUpload({ label, description, value, onChange }: ImageUploadProps) {
   const [dragOver, setDragOver] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
-  const handleFile = useCallback(
-    (file: File) => {
-      const url = URL.createObjectURL(file);
+  const handleFile = useCallback(async (file: File) => {
+    try {
+      setUploading(true);
+      const url = await uploadImage(file);
       onChange(url);
-    },
-    [onChange]
-  );
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file && file.type.startsWith("image/")) handleFile(file);
-    },
-    [handleFile]
-  );
+    } catch (error) {
+      console.error("Erro no upload:", error);
+      alert("Erro ao enviar imagem");
+    } finally {
+      setUploading(false);
+    }
+  }, [onChange]);
 
   return (
     <div className="space-y-2">
@@ -51,11 +48,14 @@ export default function ImageUpload({ label, description, value, onChange }: Ima
             setDragOver(true);
           }}
           onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file && file.type.startsWith("image/")) handleFile(file);
+          }}
           className={`relative border-2 border-dashed rounded-lg h-40 flex flex-col items-center justify-center gap-2 cursor-pointer transition-all ${
-            dragOver
-              ? "border-primary bg-primary/5"
-              : "border-border hover:border-muted-foreground"
+            dragOver ? "border-primary bg-primary/5" : "border-border hover:border-muted-foreground"
           }`}
         >
           <input
@@ -67,9 +67,9 @@ export default function ImageUpload({ label, description, value, onChange }: Ima
               if (file) handleFile(file);
             }}
           />
-          <ImageIcon className="w-8 h-8 text-muted-foreground" />
+          {uploading ? <Loader2 className="w-8 h-8 animate-spin" /> : <ImageIcon className="w-8 h-8 text-muted-foreground" />}
           <span className="text-xs text-muted-foreground">
-            Arraste ou clique para enviar
+            {uploading ? "Enviando imagem..." : "Arraste ou clique para enviar"}
           </span>
         </div>
       )}
