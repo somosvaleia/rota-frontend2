@@ -74,23 +74,74 @@ export default function NewProject() {
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
-    setSubmitting(true);
-    try {
-      const payload = {
+import { supabase } from "@/integrations/supabase/client";
+// se tiver auth, pega o user
+
+const handleSubmit = async () => {
+  setSubmitting(true);
+
+  try {
+    const payload = {
+      nome_mercado: nome,
+      cidade,
+      observacoes,
+      categorias: categorias.filter((c) => c.enabled),
+      imagens: {
+        logo,
+        planta,
+        fachada_ref: fachadaRef,
+        interno_ref: internoRef,
+        corredor_ref: corredorRef,
+        caixa_ref: caixaRef,
+        vista_superior_ref: vistaRef,
+        extras: extraRefs.filter((r) => r.url).map((r) => ({
+          label: r.label,
+          url: r.url,
+        })),
+      },
+    };
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    const { data: project, error: insertError } = await supabase
+      .from("projects")
+      .insert({
+        user_id: user?.id ?? null,
         nome_mercado: nome,
         cidade,
         observacoes,
-        categorias: categorias.filter((c) => c.enabled),
-        imagens: {
-          logo,
-          planta,
-          fachada_ref: fachadaRef,
-          interno_ref: internoRef,
-          corredor_ref: corredorRef,
-          caixa_ref: caixaRef,
-          vista_superior_ref: vistaRef,
-          extras: extraRefs.filter((r) => r.url).map((r) => ({ label: r.label, url: r.url })),
-        },
+        categorias: payload.categorias,
+        imagens: payload.imagens,
+        status: "processando",
+      })
+      .select()
+      .single();
+
+    if (insertError) throw insertError;
+
+    const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
+
+    const res = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: project.id,
+        ...payload,
+      }),
+    });
+
+    if (!res.ok) throw new Error(`Erro ${res.status}`);
+
+    navigate("/");
+  } catch (err) {
+    console.error("Erro ao enviar projeto:", err);
+    alert("Erro ao enviar o projeto. Tente novamente.");
+  } finally {
+    setSubmitting(false);
+  }
+};
       };
 
       const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://api.rota.valeia.space/webhook/rota/projeto2';
