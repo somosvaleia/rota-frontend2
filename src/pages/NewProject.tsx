@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "@/integrations/supabase/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, ArrowRight, Check, Store, Image, Grid3X3, Plus, Trash2 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
@@ -72,10 +73,6 @@ export default function NewProject() {
   };
 
   const [submitting, setSubmitting] = useState(false);
-
-  const handleSubmit = async () => {
-import { supabase } from "@/integrations/supabase/client";
-// se tiver auth, pega o user
 
 const handleSubmit = async () => {
   setSubmitting(true);
