@@ -139,25 +139,6 @@ const handleSubmit = async () => {
     setSubmitting(false);
   }
 };
-      };
-
-      const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://api.rota.valeia.space/webhook/rota/projeto2';
-      const res = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) throw new Error(`Erro ${res.status}`);
-
-      navigate("/");
-    } catch (err) {
-      console.error("Erro ao enviar projeto:", err);
-      alert("Erro ao enviar o projeto. Tente novamente.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   return (
     <AppLayout>
