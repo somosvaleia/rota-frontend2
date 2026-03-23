@@ -118,7 +118,7 @@ const handleSubmit = async () => {
 
     if (insertError) throw insertError;
 
-    const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL;
+    const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://api.rota.valeia.space/webhook/rota/projeto';
 
     const res = await fetch(webhookUrl, {
       method: "POST",
