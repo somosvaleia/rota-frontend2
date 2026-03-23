@@ -1,10 +1,28 @@
 import { useParams, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Play, ExternalLink } from "lucide-react";
+import { ArrowLeft, Download, Play, ExternalLink, Loader2 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
-import { mockProjects } from "@/data/mockProjects";
 import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+
+interface ProjectRow {
+  id: string;
+  nome_mercado: string;
+  cidade: string;
+  observacoes: string;
+  categorias: any;
+  imagens: any;
+  status: string;
+  img_a_url: string | null;
+  img_b_url: string | null;
+  img_c_url: string | null;
+  img_d_url: string | null;
+  img_e_url: string | null;
+  video_url: string | null;
+  created_at: string;
+}
 
 const sceneLabels: Record<string, string> = {
   img_a: "A – Fachada",
@@ -16,16 +34,58 @@ const sceneLabels: Record<string, string> = {
 
 export default function ProjectDetail() {
   const { id } = useParams();
-  const project = mockProjects.find((p) => p.id === id);
+  const [project, setProject] = useState<ProjectRow | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const fetchProject = async () => {
+      const { data, error } = await supabase
+        .from("projects")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (!error && data) setProject(data as ProjectRow);
+      setLoading(false);
+    };
+
+    fetchProject();
+
+    // Realtime for this project
+    const channel = supabase
+      .channel(`project-${id}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "projects", filter: `id=eq.${id}` },
+        (payload) => {
+          setProject(payload.new as ProjectRow);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [id]);
+
+  if (loading) {
+    return (
+      <AppLayout>
+        <div className="p-8 flex items-center justify-center min-h-[50vh]">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      </AppLayout>
+    );
+  }
 
   if (!project) {
     return (
       <AppLayout>
         <div className="p-8 text-center">
           <p className="text-muted-foreground">Projeto não encontrado.</p>
-          <Link to="/" className="text-primary underline mt-2 inline-block">
-            Voltar
-          </Link>
+          <Link to="/" className="text-primary underline mt-2 inline-block">Voltar</Link>
         </div>
       </AppLayout>
     );
@@ -42,7 +102,6 @@ export default function ProjectDetail() {
   return (
     <AppLayout>
       <div className="p-8 max-w-5xl mx-auto">
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -54,7 +113,7 @@ export default function ProjectDetail() {
           <div className="flex-1">
             <div className="flex items-center gap-3">
               <h1 className="font-display text-2xl font-bold">{project.nome_mercado}</h1>
-              <StatusBadge status={project.status} />
+              <StatusBadge status={project.status as any} />
             </div>
             <p className="text-sm text-muted-foreground mt-1">
               {project.cidade} • Criado em {new Date(project.created_at).toLocaleDateString("pt-BR")}
@@ -71,7 +130,6 @@ export default function ProjectDetail() {
           )}
         </motion.div>
 
-        {/* Generated Images */}
         {images.length > 0 ? (
           <div className="space-y-6">
             <h2 className="font-display text-lg font-semibold">Imagens Geradas</h2>
@@ -85,11 +143,7 @@ export default function ProjectDetail() {
                   className="glass-card rounded-xl overflow-hidden group"
                 >
                   <div className="relative">
-                    <img
-                      src={img.url}
-                      alt={sceneLabels[img.key]}
-                      className="w-full h-56 object-cover"
-                    />
+                    <img src={img.url!} alt={sceneLabels[img.key]} className="w-full h-56 object-cover" />
                     <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
                       <Button size="sm" variant="outline" className="gap-1.5">
                         <ExternalLink className="w-3.5 h-3.5" />
@@ -127,16 +181,11 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {/* Video */}
         {project.video_url && (
           <div className="mt-8 space-y-4">
             <h2 className="font-display text-lg font-semibold">Vídeo do Projeto</h2>
             <div className="glass-card rounded-xl overflow-hidden">
-              <video
-                src={project.video_url}
-                controls
-                className="w-full"
-              />
+              <video src={project.video_url} controls className="w-full" />
             </div>
           </div>
         )}
