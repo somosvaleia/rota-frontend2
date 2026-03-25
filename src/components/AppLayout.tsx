@@ -5,7 +5,6 @@ import { LayoutDashboard, Plus, Settings } from "lucide-react";
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Projetos" },
   { to: "/novo-projeto", icon: Plus, label: "Novo Projeto" },
-  { to: "/configuracoes", icon: Settings, label: "Configurações" },
 ];
 
 export default function AppLayout({ children }: { children: ReactNode }) {
