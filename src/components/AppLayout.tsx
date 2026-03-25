@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, Plus, Settings } from "lucide-react";
+import { LayoutDashboard, Plus } from "lucide-react";
 
 const navItems = [
   { to: "/", icon: LayoutDashboard, label: "Projetos" },
