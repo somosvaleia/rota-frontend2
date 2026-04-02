@@ -1,7 +1,7 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, X } from "lucide-react";
+import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2 } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -15,35 +15,24 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-interface ProjectRow {
-  id: string;
-  nome_mercado: string;
-  cidade: string;
-  observacoes: string;
-  categorias: any;
-  imagens: any;
-  status: string;
-  img_a_url: string | null;
-  img_b_url: string | null;
-  img_c_url: string | null;
-  img_d_url: string | null;
-  img_e_url: string | null;
-  video_url: string | null;
-  created_at: string;
-}
+const IMAGE_KEYS = [
+  "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
+  "img_f_url", "img_g_url", "img_h_url", "img_i_url", "img_j_url",
+  "img_k_url", "img_l_url", "img_m_url", "img_n_url", "img_o_url",
+  "img_p_url", "img_q_url", "img_r_url", "img_s_url", "img_t_url",
+] as const;
 
-const sceneLabels: Record<string, string> = {
-  img_a: "A – Fachada",
-  img_b: "B – Entrada e Caixas",
-  img_c: "C – Corredores Internos",
-  img_d: "D – Vista Fundo → Frente",
-  img_e: "E – Vista Superior",
+const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"] as const;
+
+const imageLabel = (key: string) => {
+  const letter = key.replace("img_", "").replace("_url", "").toUpperCase();
+  return `Imagem ${letter}`;
 };
 
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [project, setProject] = useState<ProjectRow | null>(null);
+  const [project, setProject] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -59,7 +48,7 @@ export default function ProjectDetail() {
         .eq("id", id)
         .single();
 
-      if (!error && data) setProject(data as ProjectRow);
+      if (!error && data) setProject(data);
       setLoading(false);
     };
 
@@ -70,15 +59,11 @@ export default function ProjectDetail() {
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "projects", filter: `id=eq.${id}` },
-        (payload) => {
-          setProject(payload.new as ProjectRow);
-        }
+        (payload) => setProject(payload.new)
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [id]);
 
   const handleDelete = async () => {
@@ -115,15 +100,15 @@ export default function ProjectDetail() {
     );
   }
 
-  const images = [
-    { key: "img_a", url: project.img_a_url },
-    { key: "img_b", url: project.img_b_url },
-    { key: "img_c", url: project.img_c_url },
-    { key: "img_d", url: project.img_d_url },
-    { key: "img_e", url: project.img_e_url },
-  ].filter((img) => img.url);
+  const images = IMAGE_KEYS
+    .map((key) => ({ key, url: project[key] as string | null }))
+    .filter((img) => img.url);
 
-  const hasMedia = images.length > 0 || project.video_url;
+  const videos = VIDEO_KEYS
+    .map((key) => ({ key, url: project[key] as string | null }))
+    .filter((v) => v.url);
+
+  const hasMedia = images.length > 0 || videos.length > 0;
 
   return (
     <AppLayout>
@@ -169,20 +154,20 @@ export default function ProjectDetail() {
         {/* Images */}
         {images.length > 0 && (
           <div className="space-y-6 mb-8">
-            <h2 className="font-display text-lg font-semibold">Imagens Geradas</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <h2 className="font-display text-lg font-semibold">Imagens Geradas ({images.length})</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {images.map((img, i) => (
                 <motion.div
                   key={img.key}
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: i * 0.1 }}
+                  transition={{ delay: i * 0.05 }}
                   className="glass-card rounded-xl overflow-hidden group cursor-pointer"
                   onClick={() => setLightboxUrl(img.url!)}
                 >
                   <div className="relative">
-                    <img src={img.url!} alt={sceneLabels[img.key]} className="w-full h-56 object-cover" />
-                    <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                    <img src={img.url!} alt={imageLabel(img.key)} className="w-full h-48 object-cover" />
+                    <div className="absolute inset-0 bg-background/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                       <Button size="sm" variant="outline" className="gap-1.5">
                         <ExternalLink className="w-3.5 h-3.5" />
                         Ampliar
@@ -190,7 +175,7 @@ export default function ProjectDetail() {
                     </div>
                   </div>
                   <div className="p-3">
-                    <p className="text-sm font-medium">{sceneLabels[img.key]}</p>
+                    <p className="text-sm font-medium">{imageLabel(img.key)}</p>
                   </div>
                 </motion.div>
               ))}
@@ -198,12 +183,19 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {/* Video */}
-        {project.video_url && (
+        {/* Videos */}
+        {videos.length > 0 && (
           <div className="space-y-4 mb-8">
-            <h2 className="font-display text-lg font-semibold">Vídeo do Projeto</h2>
-            <div className="glass-card rounded-xl overflow-hidden">
-              <video src={project.video_url} controls className="w-full" />
+            <h2 className="font-display text-lg font-semibold">Vídeos ({videos.length})</h2>
+            <div className="grid grid-cols-1 gap-4">
+              {videos.map((v, i) => (
+                <div key={v.key} className="glass-card rounded-xl overflow-hidden">
+                  <video src={v.url!} controls className="w-full" />
+                  <div className="p-3">
+                    <p className="text-sm font-medium">Vídeo {i + 1}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -232,7 +224,7 @@ export default function ProjectDetail() {
               <>
                 <h3 className="font-display text-lg font-semibold mb-2">Nenhuma mídia gerada</h3>
                 <p className="text-sm text-muted-foreground">
-                  Este projeto ainda está em rascunho. Finalize as configurações para iniciar a geração.
+                  Este projeto ainda está em rascunho.
                 </p>
               </>
             )}

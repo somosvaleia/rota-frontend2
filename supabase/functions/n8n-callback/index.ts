@@ -6,6 +6,15 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+const IMAGE_KEYS = [
+  "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
+  "img_f_url", "img_g_url", "img_h_url", "img_i_url", "img_j_url",
+  "img_k_url", "img_l_url", "img_m_url", "img_n_url", "img_o_url",
+  "img_p_url", "img_q_url", "img_r_url", "img_s_url", "img_t_url",
+];
+
+const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"];
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -14,7 +23,6 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json();
 
-    // Required field
     const projectId = body.project_id;
     if (!projectId) {
       return new Response(
@@ -23,18 +31,14 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Build update object with only provided fields
     const updateData: Record<string, unknown> = {};
 
-    if (body.img_a_url) updateData.img_a_url = body.img_a_url;
-    if (body.img_b_url) updateData.img_b_url = body.img_b_url;
-    if (body.img_c_url) updateData.img_c_url = body.img_c_url;
-    if (body.img_d_url) updateData.img_d_url = body.img_d_url;
-    if (body.img_e_url) updateData.img_e_url = body.img_e_url;
-    if (body.video_url) updateData.video_url = body.video_url;
+    for (const key of [...IMAGE_KEYS, ...VIDEO_KEYS]) {
+      if (body[key]) updateData[key] = body[key];
+    }
+
     if (body.status) updateData.status = body.status;
 
-    // Default: if images are sent but no status, mark as "concluido"
     if (!body.status && Object.keys(updateData).length > 0) {
       updateData.status = "concluido";
     }
@@ -48,7 +52,6 @@ Deno.serve(async (req) => {
 
     updateData.updated_at = new Date().toISOString();
 
-    // Use service role to bypass RLS
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
