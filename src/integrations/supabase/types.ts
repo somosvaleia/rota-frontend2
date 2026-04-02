@@ -26,11 +26,28 @@ export type Database = {
           img_c_url: string | null
           img_d_url: string | null
           img_e_url: string | null
+          img_f_url: string | null
+          img_g_url: string | null
+          img_h_url: string | null
+          img_i_url: string | null
+          img_j_url: string | null
+          img_k_url: string | null
+          img_l_url: string | null
+          img_m_url: string | null
+          img_n_url: string | null
+          img_o_url: string | null
+          img_p_url: string | null
+          img_q_url: string | null
+          img_r_url: string | null
+          img_s_url: string | null
+          img_t_url: string | null
           nome_mercado: string
           observacoes: string | null
           status: string
           updated_at: string
           user_id: string
+          video_b_url: string | null
+          video_c_url: string | null
           video_url: string | null
         }
         Insert: {
@@ -44,11 +61,28 @@ export type Database = {
           img_c_url?: string | null
           img_d_url?: string | null
           img_e_url?: string | null
+          img_f_url?: string | null
+          img_g_url?: string | null
+          img_h_url?: string | null
+          img_i_url?: string | null
+          img_j_url?: string | null
+          img_k_url?: string | null
+          img_l_url?: string | null
+          img_m_url?: string | null
+          img_n_url?: string | null
+          img_o_url?: string | null
+          img_p_url?: string | null
+          img_q_url?: string | null
+          img_r_url?: string | null
+          img_s_url?: string | null
+          img_t_url?: string | null
           nome_mercado: string
           observacoes?: string | null
           status?: string
           updated_at?: string
           user_id: string
+          video_b_url?: string | null
+          video_c_url?: string | null
           video_url?: string | null
         }
         Update: {
@@ -62,11 +96,28 @@ export type Database = {
           img_c_url?: string | null
           img_d_url?: string | null
           img_e_url?: string | null
+          img_f_url?: string | null
+          img_g_url?: string | null
+          img_h_url?: string | null
+          img_i_url?: string | null
+          img_j_url?: string | null
+          img_k_url?: string | null
+          img_l_url?: string | null
+          img_m_url?: string | null
+          img_n_url?: string | null
+          img_o_url?: string | null
+          img_p_url?: string | null
+          img_q_url?: string | null
+          img_r_url?: string | null
+          img_s_url?: string | null
+          img_t_url?: string | null
           nome_mercado?: string
           observacoes?: string | null
           status?: string
           updated_at?: string
           user_id?: string
+          video_b_url?: string | null
+          video_c_url?: string | null
           video_url?: string | null
         }
         Relationships: []
