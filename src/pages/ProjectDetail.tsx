@@ -289,6 +289,28 @@ export default function ProjectDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Project */}
+      {showEditDialog && (
+        <EditProjectDialog
+          project={project}
+          open={showEditDialog}
+          onOpenChange={setShowEditDialog}
+          onUpdated={(updated) => setProject(updated)}
+        />
+      )}
+
+      {/* Edit Image */}
+      {editingImage && (
+        <EditImageDialog
+          projectId={project.id}
+          imageKey={editingImage.key}
+          imageUrl={editingImage.url}
+          imageLabel={editingImage.label}
+          open={!!editingImage}
+          onOpenChange={(open) => { if (!open) setEditingImage(null); }}
+        />
+      )}
     </AppLayout>
   );
 }
