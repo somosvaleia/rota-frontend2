@@ -14,6 +14,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import EditProjectDialog from "@/components/EditProjectDialog";
+import EditImageDialog from "@/components/EditImageDialog";
 
 const IMAGE_KEYS = [
   "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
