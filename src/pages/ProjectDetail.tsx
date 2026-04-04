@@ -1,7 +1,7 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import EditProjectDialog from "@/components/EditProjectDialog";
+import EditImageDialog from "@/components/EditImageDialog";
 
 const IMAGE_KEYS = [
   "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
@@ -36,6 +38,8 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editingImage, setEditingImage] = useState<{ key: string; url: string; label: string } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -134,6 +138,14 @@ export default function ProjectDetail() {
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setShowEditDialog(true)}
+            >
+              <Pencil className="w-4 h-4" />
+              Editar
+            </Button>
             {project.status === "concluido" && (
               <Button variant="outline" className="gap-2">
                 <Download className="w-4 h-4" />
@@ -174,8 +186,20 @@ export default function ProjectDetail() {
                       </Button>
                     </div>
                   </div>
-                  <div className="p-3">
+                  <div className="p-3 flex items-center justify-between">
                     <p className="text-sm font-medium">{imageLabel(img.key)}</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1 h-7 text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingImage({ key: img.key, url: img.url!, label: imageLabel(img.key) });
+                      }}
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Editar
+                    </Button>
                   </div>
                 </motion.div>
               ))}
@@ -265,6 +289,28 @@ export default function ProjectDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Edit Project */}
+      {showEditDialog && (
+        <EditProjectDialog
+          project={project}
+          open={showEditDialog}
+          onOpenChange={setShowEditDialog}
+          onUpdated={(updated) => setProject(updated)}
+        />
+      )}
+
+      {/* Edit Image */}
+      {editingImage && (
+        <EditImageDialog
+          projectId={project.id}
+          imageKey={editingImage.key}
+          imageUrl={editingImage.url}
+          imageLabel={editingImage.label}
+          open={!!editingImage}
+          onOpenChange={(open) => { if (!open) setEditingImage(null); }}
+        />
+      )}
     </AppLayout>
   );
 }
