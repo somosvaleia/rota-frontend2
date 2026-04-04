@@ -186,8 +186,20 @@ export default function ProjectDetail() {
                       </Button>
                     </div>
                   </div>
-                  <div className="p-3">
+                  <div className="p-3 flex items-center justify-between">
                     <p className="text-sm font-medium">{imageLabel(img.key)}</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1 h-7 text-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingImage({ key: img.key, url: img.url!, label: imageLabel(img.key) });
+                      }}
+                    >
+                      <Pencil className="w-3 h-3" />
+                      Editar
+                    </Button>
                   </div>
                 </motion.div>
               ))}
