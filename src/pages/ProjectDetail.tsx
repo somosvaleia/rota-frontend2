@@ -138,6 +138,14 @@ export default function ProjectDetail() {
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="outline"
+              className="gap-2"
+              onClick={() => setShowEditDialog(true)}
+            >
+              <Pencil className="w-4 h-4" />
+              Editar
+            </Button>
             {project.status === "concluido" && (
               <Button variant="outline" className="gap-2">
                 <Download className="w-4 h-4" />
