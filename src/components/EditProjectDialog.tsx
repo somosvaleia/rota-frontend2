@@ -73,6 +73,7 @@ export default function EditProjectDialog({ project, open, onOpenChange, onUpdat
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: project.id,
+          tipo: "edicao",
           nome_mercado: nome,
           cidade,
           observacoes,

@@ -125,6 +125,7 @@ const handleSubmit = async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         project_id: project.id,
+        tipo: "criacao",
         ...payload,
       }),
     });
