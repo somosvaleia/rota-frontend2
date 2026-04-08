@@ -39,17 +39,26 @@ export default function EditImageDialog({
     if (!prompt.trim()) return;
     setLoading(true);
     try {
-      const res = await supabase.functions.invoke("edit-image", {
-        body: { project_id: projectId, image_key: imageKey, prompt, image_url: imageUrl },
+      const webhookUrl = "https://api.rota.valeia.space/webhook/rota/projeto";
+      const res = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          tipo: "edicao",
+          image_key: imageKey,
+          image_url: imageUrl,
+          prompt,
+        }),
       });
 
-      if (res.error) throw res.error;
+      if (!res.ok) throw new Error("Webhook failed");
       onOpenChange(false);
       setMode("choose");
       setPrompt("");
     } catch (err) {
       console.error(err);
-      alert("Erro ao editar imagem com IA.");
+      alert("Erro ao enviar edição para processamento.");
     } finally {
       setLoading(false);
     }
