@@ -128,7 +128,6 @@ function buildPrompt(scene: Scene, nome: string, cidade: string, obs: string): s
   return PROMPT_BASE_INTERNO(nome, cidade, obs) + "\nCENA SOLICITADA:\n" + (scene as any).cenaDesc;
 }
 
-}
 
 async function generateImageFromPrompt(
   apiKey: string,
