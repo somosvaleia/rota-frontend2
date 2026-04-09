@@ -128,15 +128,6 @@ function buildPrompt(scene: Scene, nome: string, cidade: string, obs: string): s
   return PROMPT_BASE_INTERNO(nome, cidade, obs) + "\nCENA SOLICITADA:\n" + (scene as any).cenaDesc;
 }
 
-function fillPrompt(
-  template: string,
-  vars: Record<string, string>
-): string {
-  let result = template;
-  for (const [k, v] of Object.entries(vars)) {
-    result = result.replaceAll(`{${k}}`, v || "");
-  }
-  return result;
 }
 
 async function generateImageFromPrompt(
@@ -168,11 +159,17 @@ async function generateImageFromPrompt(
   return data.choices?.[0]?.message?.images?.[0]?.image_url?.url ?? null;
 }
 
-async function editImageWithPrompt(
+async function generateWithMultipleRefs(
   apiKey: string,
   prompt: string,
-  imageUrl: string
+  imageUrls: string[]
 ): Promise<string | null> {
+  // Build content array with text + all reference images
+  const content: any[] = [{ type: "text", text: prompt }];
+  for (const url of imageUrls) {
+    content.push({ type: "image_url", image_url: { url } });
+  }
+
   const res = await fetch(
     "https://ai.gateway.lovable.dev/v1/chat/completions",
     {
@@ -183,22 +180,14 @@ async function editImageWithPrompt(
       },
       body: JSON.stringify({
         model: "google/gemini-3-pro-image-preview",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: imageUrl } },
-            ],
-          },
-        ],
+        messages: [{ role: "user", content }],
         modalities: ["image", "text"],
       }),
     }
   );
 
   if (!res.ok) {
-    console.error("AI edit error:", res.status, await res.text());
+    console.error("AI error:", res.status, await res.text());
     return null;
   }
 
