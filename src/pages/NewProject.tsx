@@ -118,19 +118,14 @@ const handleSubmit = async () => {
 
     if (insertError) throw insertError;
 
-    const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || 'https://api.rota.valeia.space/webhook/rota/projeto';
-
-    const res = await fetch(webhookUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    // Call edge function to generate images (fire and forget - realtime will update UI)
+    supabase.functions.invoke("generate-images", {
+      body: {
         project_id: project.id,
         tipo: "criacao",
         ...payload,
-      }),
-    });
-
-    if (!res.ok) throw new Error(`Erro ${res.status}`);
+      },
+    }).catch((err) => console.error("Error invoking generate-images:", err));
 
     navigate("/");
   } catch (err) {
