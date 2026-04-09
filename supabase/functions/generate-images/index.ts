@@ -216,25 +216,47 @@ ${categoria.observacao ? `- Observação específica: ${categoria.observacao}` :
 - Se houver imagem de referência para esta gôndola, seguir o estilo visual da referência
 `;
 }
+
+// Retry wrapper for AI calls (handles transient 502/503 errors)
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries = 2
+): Promise<Response> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(url, options);
+    if (res.ok || (res.status < 500 && res.status !== 429)) {
+      return res;
+    }
+    const statusText = res.status;
+    console.warn(`Attempt ${attempt + 1} failed with ${statusText}, retrying in 5s...`);
+    if (attempt < maxRetries) {
+      await new Promise((r) => setTimeout(r, 5000));
+    } else {
+      return res; // return last failed response
+    }
+  }
+  throw new Error("Unreachable");
+}
+
+const AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
 async function generateImageFromPrompt(
   apiKey: string,
   prompt: string
 ): Promise<string | null> {
-  const res = await fetch(
-    "https://ai.gateway.lovable.dev/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-pro-image-preview",
-        messages: [{ role: "user", content: prompt }],
-        modalities: ["image", "text"],
-      }),
-    }
-  );
+  const res = await fetchWithRetry(AI_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-pro-image-preview",
+      messages: [{ role: "user", content: prompt }],
+      modalities: ["image", "text"],
+    }),
+  });
 
   if (!res.ok) {
     console.error("AI generate error:", res.status, await res.text());
@@ -250,27 +272,23 @@ async function generateWithMultipleRefs(
   prompt: string,
   imageUrls: string[]
 ): Promise<string | null> {
-  // Build content array with text + all reference images
   const content: any[] = [{ type: "text", text: prompt }];
   for (const url of imageUrls) {
     content.push({ type: "image_url", image_url: { url } });
   }
 
-  const res = await fetch(
-    "https://ai.gateway.lovable.dev/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-pro-image-preview",
-        messages: [{ role: "user", content }],
-        modalities: ["image", "text"],
-      }),
-    }
-  );
+  const res = await fetchWithRetry(AI_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "google/gemini-3-pro-image-preview",
+      messages: [{ role: "user", content }],
+      modalities: ["image", "text"],
+    }),
+  });
 
   if (!res.ok) {
     console.error("AI error:", res.status, await res.text());
@@ -411,73 +429,29 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Full generation (criacao) or reprocess (edicao without image_key)
+    // Full generation — respond immediately, process in background
     console.log(`Starting full generation for project ${project_id}, tipo: ${tipo}`);
 
     const refs = imagens || {};
     const nome = nome_mercado || "Mercado";
     const cidadeVal = cidade || "";
     const obsVal = observacoes || "";
-    const updates: Record<string, string> = {};
-    let hasError = false;
-    let totalScenes = 0;
 
     // Collect global reference images (logo, planta)
     const logoUrl = refs.logo as string | undefined;
     const plantaUrl = refs.planta as string | undefined;
 
-    // Helper to generate and upload a single image
-    async function processScene(
-      imgKey: string,
-      sceneName: string,
-      prompt: string,
-      refImages: string[]
-    ) {
-      totalScenes++;
-      console.log(`Processing scene: ${sceneName} (${imgKey})`);
-      try {
-        let base64Url: string | null = null;
-
-        if (refImages.length > 0) {
-          console.log(`Generating ${sceneName} with ${refImages.length} reference(s)`);
-          base64Url = await generateWithMultipleRefs(lovableApiKey, prompt, refImages);
-        } else {
-          console.log(`Generating ${sceneName} from scratch`);
-          base64Url = await generateImageFromPrompt(lovableApiKey, prompt);
-        }
-
-        if (base64Url) {
-          const publicUrl = await uploadBase64Image(
-            supabase,
-            project_id,
-            imgKey.replace("_url", ""),
-            base64Url
-          );
-          if (publicUrl) {
-            updates[imgKey] = publicUrl;
-            await supabase
-              .from("projects")
-              .update({
-                [imgKey]: publicUrl,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", project_id);
-            console.log(`✓ ${sceneName} done`);
-          }
-        } else {
-          console.error(`✗ ${sceneName} - no image returned`);
-          hasError = true;
-        }
-      } catch (err) {
-        console.error(`✗ ${sceneName} error:`, err.message);
-        hasError = true;
-      }
-
-      // Delay between requests to avoid rate limiting
-      await new Promise((r) => setTimeout(r, 2000));
+    // Build list of all scenes to generate
+    interface SceneTask {
+      imgKey: string;
+      sceneName: string;
+      prompt: string;
+      refImages: string[];
     }
 
-    // 1. Generate fixed scenes (img_a through img_h)
+    const sceneTasks: SceneTask[] = [];
+
+    // 1. Fixed scenes (img_a through img_h)
     for (const scene of FIXED_SCENES) {
       const prompt = buildFixedPrompt(scene, nome, cidadeVal, obsVal);
       const refImages: string[] = [];
@@ -486,10 +460,10 @@ Deno.serve(async (req) => {
       const sceneRefUrl = scene.refField ? (refs[scene.refField] as string | undefined) : undefined;
       if (sceneRefUrl) refImages.push(sceneRefUrl);
 
-      await processScene(scene.key, scene.name, prompt, refImages);
+      sceneTasks.push({ imgKey: scene.key, sceneName: scene.name, prompt, refImages });
     }
 
-    // 2. Generate gondola/category images (img_i through img_t)
+    // 2. Gondola/category images (img_i through img_t)
     const enabledCats = Array.isArray(categorias)
       ? categorias.filter((c: any) => c.enabled)
       : [];
@@ -504,28 +478,85 @@ Deno.serve(async (req) => {
       if (plantaUrl) refImages.push(plantaUrl);
       if (cat.refImage) refImages.push(cat.refImage);
 
-      await processScene(imgKey, `Gôndola: ${cat.name}`, prompt, refImages);
+      sceneTasks.push({ imgKey, sceneName: `Gôndola: ${cat.name}`, prompt, refImages });
     }
 
-    // Final status update
-    await supabase
-      .from("projects")
-      .update({
-        status: hasError && Object.keys(updates).length === 0 ? "erro" : "concluido",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", project_id);
+    // Process all scenes in background (non-blocking)
+    const backgroundProcess = (async () => {
+      let hasError = false;
+      let generated = 0;
 
-    console.log(
-      `Generation complete. ${Object.keys(updates).length}/${totalScenes} images generated.`
-    );
+      for (const task of sceneTasks) {
+        console.log(`Processing scene: ${task.sceneName} (${task.imgKey})`);
+        try {
+          let base64Url: string | null = null;
+
+          if (task.refImages.length > 0) {
+            console.log(`Generating ${task.sceneName} with ${task.refImages.length} reference(s)`);
+            base64Url = await generateWithMultipleRefs(lovableApiKey, task.prompt, task.refImages);
+          } else {
+            console.log(`Generating ${task.sceneName} from scratch`);
+            base64Url = await generateImageFromPrompt(lovableApiKey, task.prompt);
+          }
+
+          if (base64Url) {
+            const publicUrl = await uploadBase64Image(
+              supabase,
+              project_id,
+              task.imgKey.replace("_url", ""),
+              base64Url
+            );
+            if (publicUrl) {
+              await supabase
+                .from("projects")
+                .update({
+                  [task.imgKey]: publicUrl,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", project_id);
+              console.log(`✓ ${task.sceneName} done`);
+              generated++;
+            }
+          } else {
+            console.error(`✗ ${task.sceneName} - no image returned`);
+            hasError = true;
+          }
+        } catch (err) {
+          console.error(`✗ ${task.sceneName} error:`, err.message);
+          hasError = true;
+        }
+
+        // Delay between requests to avoid rate limiting
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+
+      // Final status update
+      await supabase
+        .from("projects")
+        .update({
+          status: hasError && generated === 0 ? "erro" : "concluido",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", project_id);
+
+      console.log(`Generation complete. ${generated}/${sceneTasks.length} images generated.`);
+    })();
+
+    // Use EdgeRuntime.waitUntil to keep processing after response
+    // @ts-ignore - Deno edge runtime API
+    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+      // @ts-ignore
+      EdgeRuntime.waitUntil(backgroundProcess);
+    } else {
+      // Fallback: just let it run (won't block response)
+      backgroundProcess.catch((e) => console.error("Background error:", e));
+    }
 
     return new Response(
       JSON.stringify({
         success: true,
-        generated: Object.keys(updates).length,
-        total: totalScenes,
-        has_errors: hasError,
+        message: "Generation started",
+        total_scenes: sceneTasks.length,
       }),
       {
         status: 200,
