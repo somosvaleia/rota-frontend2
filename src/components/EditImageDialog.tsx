@@ -39,20 +39,17 @@ export default function EditImageDialog({
     if (!prompt.trim()) return;
     setLoading(true);
     try {
-      const webhookUrl = "https://api.rota.valeia.space/webhook/rota/projeto";
-      const res = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const { error: fnError } = await supabase.functions.invoke("generate-images", {
+        body: {
           project_id: projectId,
           tipo: "edicao",
           image_key: imageKey,
           image_url: imageUrl,
           prompt,
-        }),
+        },
       });
 
-      if (!res.ok) throw new Error("Webhook failed");
+      if (fnError) throw fnError;
       onOpenChange(false);
       setMode("choose");
       setPrompt("");

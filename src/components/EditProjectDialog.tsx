@@ -65,13 +65,9 @@ export default function EditProjectDialog({ project, open, onOpenChange, onUpdat
         })
         .eq("id", project.id);
 
-      // Resend to n8n webhook
-      const webhookUrl = import.meta.env.VITE_N8N_WEBHOOK_URL || "https://api.rota.valeia.space/webhook/rota/projeto";
-
-      const res = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      // Call edge function to reprocess
+      const { error: fnError } = await supabase.functions.invoke("generate-images", {
+        body: {
           project_id: project.id,
           tipo: "edicao",
           nome_mercado: nome,
@@ -79,10 +75,10 @@ export default function EditProjectDialog({ project, open, onOpenChange, onUpdat
           observacoes,
           categorias: project.categorias,
           imagens: project.imagens,
-        }),
+        },
       });
 
-      if (!res.ok) throw new Error(`Erro ${res.status}`);
+      if (fnError) throw fnError;
 
       onUpdated({ ...project, nome_mercado: nome, cidade, observacoes, status: "processando" });
       onOpenChange(false);
