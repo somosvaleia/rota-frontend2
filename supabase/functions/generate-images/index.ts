@@ -277,10 +277,10 @@ Deno.serve(async (req) => {
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
       console.log(`Editing single image: ${image_key}`);
 
-      const base64Url = await editImageWithPrompt(
+      const base64Url = await generateWithMultipleRefs(
         lovableApiKey,
         customPrompt,
-        image_url
+        [image_url]
       );
 
       if (!base64Url) {
@@ -329,26 +329,36 @@ Deno.serve(async (req) => {
     console.log(`Starting full generation for project ${project_id}, tipo: ${tipo}`);
 
     const refs = imagens || {};
-    const vars = { nome: nome_mercado || "", cidade: cidade || "" };
+    const nome = nome_mercado || "Mercado";
+    const cidadeVal = cidade || "";
+    const obsVal = observacoes || "";
     const updates: Record<string, string> = {};
     let hasError = false;
+
+    // Collect global reference images (logo, planta)
+    const logoUrl = refs.logo as string | undefined;
+    const plantaUrl = refs.planta as string | undefined;
 
     for (const scene of SCENES) {
       console.log(`Processing scene: ${scene.name} (${scene.key})`);
 
-      const refUrl = refs[scene.refField] as string | undefined;
+      const sceneRefUrl = refs[scene.refField] as string | undefined;
       let base64Url: string | null = null;
 
       try {
-        if (refUrl) {
-          // Has reference image -> edit it
-          const prompt = fillPrompt(scene.editPrompt, vars);
-          console.log(`Editing with reference for ${scene.name}`);
-          base64Url = await editImageWithPrompt(lovableApiKey, prompt, refUrl);
+        const prompt = buildPrompt(scene, nome, cidadeVal, obsVal);
+
+        // Collect all available reference images for this scene
+        const refImages: string[] = [];
+        if (logoUrl) refImages.push(logoUrl);
+        if (plantaUrl) refImages.push(plantaUrl);
+        if (sceneRefUrl) refImages.push(sceneRefUrl);
+
+        if (refImages.length > 0) {
+          console.log(`Generating ${scene.name} with ${refImages.length} reference(s)`);
+          base64Url = await generateWithMultipleRefs(lovableApiKey, prompt, refImages);
         } else {
-          // No reference -> generate from scratch
-          const prompt = fillPrompt(scene.prompt, vars);
-          console.log(`Generating from scratch for ${scene.name}`);
+          console.log(`Generating ${scene.name} from scratch (no references)`);
           base64Url = await generateImageFromPrompt(lovableApiKey, prompt);
         }
 
