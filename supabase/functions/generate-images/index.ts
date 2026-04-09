@@ -420,31 +420,29 @@ Deno.serve(async (req) => {
     const obsVal = observacoes || "";
     const updates: Record<string, string> = {};
     let hasError = false;
+    let totalScenes = 0;
 
     // Collect global reference images (logo, planta)
     const logoUrl = refs.logo as string | undefined;
     const plantaUrl = refs.planta as string | undefined;
 
-    for (const scene of SCENES) {
-      console.log(`Processing scene: ${scene.name} (${scene.key})`);
-
-      const sceneRefUrl = refs[scene.refField] as string | undefined;
-      let base64Url: string | null = null;
-
+    // Helper to generate and upload a single image
+    async function processScene(
+      imgKey: string,
+      sceneName: string,
+      prompt: string,
+      refImages: string[]
+    ) {
+      totalScenes++;
+      console.log(`Processing scene: ${sceneName} (${imgKey})`);
       try {
-        const prompt = buildPrompt(scene, nome, cidadeVal, obsVal);
-
-        // Collect all available reference images for this scene
-        const refImages: string[] = [];
-        if (logoUrl) refImages.push(logoUrl);
-        if (plantaUrl) refImages.push(plantaUrl);
-        if (sceneRefUrl) refImages.push(sceneRefUrl);
+        let base64Url: string | null = null;
 
         if (refImages.length > 0) {
-          console.log(`Generating ${scene.name} with ${refImages.length} reference(s)`);
+          console.log(`Generating ${sceneName} with ${refImages.length} reference(s)`);
           base64Url = await generateWithMultipleRefs(lovableApiKey, prompt, refImages);
         } else {
-          console.log(`Generating ${scene.name} from scratch (no references)`);
+          console.log(`Generating ${sceneName} from scratch`);
           base64Url = await generateImageFromPrompt(lovableApiKey, prompt);
         }
 
@@ -452,32 +450,61 @@ Deno.serve(async (req) => {
           const publicUrl = await uploadBase64Image(
             supabase,
             project_id,
-            scene.key.replace("_url", ""),
+            imgKey.replace("_url", ""),
             base64Url
           );
           if (publicUrl) {
-            updates[scene.key] = publicUrl;
-            // Update progressively so realtime picks it up
+            updates[imgKey] = publicUrl;
             await supabase
               .from("projects")
               .update({
-                [scene.key]: publicUrl,
+                [imgKey]: publicUrl,
                 updated_at: new Date().toISOString(),
               })
               .eq("id", project_id);
-            console.log(`✓ ${scene.name} done`);
+            console.log(`✓ ${sceneName} done`);
           }
         } else {
-          console.error(`✗ ${scene.name} - no image returned`);
+          console.error(`✗ ${sceneName} - no image returned`);
           hasError = true;
         }
       } catch (err) {
-        console.error(`✗ ${scene.name} error:`, err.message);
+        console.error(`✗ ${sceneName} error:`, err.message);
         hasError = true;
       }
 
-      // Small delay between requests to avoid rate limiting
+      // Delay between requests to avoid rate limiting
       await new Promise((r) => setTimeout(r, 2000));
+    }
+
+    // 1. Generate fixed scenes (img_a through img_h)
+    for (const scene of FIXED_SCENES) {
+      const prompt = buildFixedPrompt(scene, nome, cidadeVal, obsVal);
+      const refImages: string[] = [];
+      if (logoUrl) refImages.push(logoUrl);
+      if (plantaUrl && scene.type !== "produto") refImages.push(plantaUrl);
+      const sceneRefUrl = scene.refField ? (refs[scene.refField] as string | undefined) : undefined;
+      if (sceneRefUrl) refImages.push(sceneRefUrl);
+
+      await processScene(scene.key, scene.name, prompt, refImages);
+    }
+
+    // 2. Generate gondola/category images (img_i through img_t)
+    const enabledCats = Array.isArray(categorias)
+      ? categorias.filter((c: any) => c.enabled)
+      : [];
+
+    for (let i = 0; i < enabledCats.length && i < GONDOLA_KEYS.length; i++) {
+      const cat = enabledCats[i];
+      const imgKey = GONDOLA_KEYS[i];
+      const prompt = buildGondolaPrompt(nome, cidadeVal, obsVal, cat);
+
+      const refImages: string[] = [];
+      if (logoUrl) refImages.push(logoUrl);
+      if (plantaUrl) refImages.push(plantaUrl);
+      if (cat.refImage) refImages.push(cat.refImage);
+
+      await processScene(imgKey, `Gôndola: ${cat.name}`, prompt, refImages);
     }
 
     // Final status update
@@ -490,14 +517,14 @@ Deno.serve(async (req) => {
       .eq("id", project_id);
 
     console.log(
-      `Generation complete. ${Object.keys(updates).length}/${SCENES.length} images generated.`
+      `Generation complete. ${Object.keys(updates).length}/${totalScenes} images generated.`
     );
 
     return new Response(
       JSON.stringify({
         success: true,
         generated: Object.keys(updates).length,
-        total: SCENES.length,
+        total: totalScenes,
         has_errors: hasError,
       }),
       {
@@ -511,5 +538,7 @@ Deno.serve(async (req) => {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
+  }
+});
   }
 });
