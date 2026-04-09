@@ -26,9 +26,21 @@ const IMAGE_KEYS = [
 
 const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"] as const;
 
+const IMAGE_LABELS: Record<string, string> = {
+  img_a_url: "Fachada",
+  img_b_url: "Entrada e Caixas",
+  img_c_url: "Corredores",
+  img_d_url: "Interior / Fundo",
+  img_e_url: "Vista Superior",
+  img_f_url: "Farda / Uniforme",
+  img_g_url: "Sacola Plástica",
+  img_h_url: "Carrinho de Mercado",
+};
+
 const imageLabel = (key: string) => {
+  if (IMAGE_LABELS[key]) return IMAGE_LABELS[key];
   const letter = key.replace("img_", "").replace("_url", "").toUpperCase();
-  return `Imagem ${letter}`;
+  return `Gôndola ${letter}`;
 };
 
 export default function ProjectDetail() {
