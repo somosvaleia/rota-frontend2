@@ -6,54 +6,127 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
-// Scene definitions with default prompts - you can customize these later
+// Base prompt blocks reused across scenes
+const PROMPT_BASE_EXTERNO = (nome: string, cidade: string, obs: string) => `
+Gerar imagens arquitetônicas fotorrealistas de um supermercado brasileiro.
+
+DADOS DO PROJETO:
+- Nome: ${nome || "Mercado"}
+- Cidade: ${cidade || "não informada"}
+- Observações: ${obs || "sem observações adicionais"}
+- Identidade adicional: seguir principalmente a logo, se houver
+
+IDENTIDADE VISUAL (PRIORIDADE ALTA):
+- Usar obrigatoriamente a logo enviada como referência principal de marca.
+- Seguir fielmente as cores predominantes da logo.
+- O letreiro, fachada e comunicação visual devem refletir a marca.
+
+ESTRUTURA (PRIORIDADE MÁXIMA):
+- A planta enviada deve ser seguida com precisão.
+- A volumetria, proporções e organização arquitetônica devem respeitar a planta.
+- Não inventar uma estrutura diferente.
+- Todas as vistas devem representar o mesmo prédio baseado na planta.
+
+REFERÊNCIAS COMPLEMENTARES:
+- As referências complementares refinam o estilo, mas não substituem a planta quando ela existir.
+
+REGRAS GERAIS:
+- Alto realismo
+- Arquitetura comercial brasileira
+- Coerência total entre todas as imagens
+- Mesmo mercado em todos os ângulos
+- Iluminação natural agradável
+- Materiais realistas
+- Sem distorções exageradas
+- Sem textos aleatórios
+`;
+
+const PROMPT_BASE_INTERNO = (nome: string, cidade: string, obs: string) => `
+Gere uma imagem fotorealista interna de supermercado brasileiro.
+
+REGRAS OBRIGATÓRIAS:
+- Use a planta baixa enviada como base estrutural principal.
+- Respeite fielmente o layout da planta.
+- A cena deve parecer parte do mesmo mercado em todos os ângulos.
+- Use a identidade visual da logo do mercado na comunicação interna, placas, faixas e ambientação.
+- Não invente um layout diferente da planta.
+- Os produtos e o ambiente devem parecer de um supermercado brasileiro real.
+- Categorias do projeto: sortimento de supermercado brasileiro.
+- Nome do mercado: ${nome || "Mercado"}.
+- Cidade: ${cidade || "não informada"}.
+${obs ? `- Observações: ${obs}` : ""}
+`;
+
+// Scene definitions with professional prompts
 const SCENES = [
   {
     key: "img_a_url",
     name: "Fachada",
     refField: "fachada_ref",
-    prompt:
-      "Gere uma imagem fotorrealista da fachada de um supermercado moderno chamado '{nome}'. A fachada deve ser atrativa, com letreiro visível e iluminação moderna. Localizado em {cidade}.",
-    editPrompt:
-      "Redesenhe esta fachada de supermercado mantendo a estrutura mas aplicando o estilo visual de um supermercado moderno chamado '{nome}'. Mantenha proporções realistas.",
+    type: "externo" as const,
+    vistaDesc: "Fachada frontal do mercado",
+    vistaRegras: `VISTA DESTA GERAÇÃO:
+- Tipo: Fachada frontal
+- Descrição: vista frontal completa da fachada do supermercado
+
+REGRAS ESPECÍFICAS DESTA VISTA:
+- Gerar exatamente esta perspectiva
+- Letreiro com o nome do mercado bem visível
+- Manter coerência total com o mesmo projeto arquitetônico
+- Se houver planta, seguir a planta com prioridade máxima
+- Se houver logo, seguir a logo nas cores e identidade visual
+- A construção deve parecer o mesmo mercado visto de frente`,
   },
   {
     key: "img_b_url",
     name: "Entrada e Caixas",
     refField: "caixa_ref",
-    prompt:
-      "Gere uma imagem fotorrealista da área de entrada e caixas de um supermercado moderno chamado '{nome}'. Mostre os caixas de pagamento organizados e a entrada acolhedora.",
-    editPrompt:
-      "Redesenhe esta área de caixas/entrada para o supermercado '{nome}', modernizando o layout mas mantendo a estrutura geral da imagem.",
+    type: "interno" as const,
+    cenaDesc: `Gerar a área de caixas do supermercado, com checkouts posicionados de forma coerente com a planta baixa, fluxo de entrada e saída, visão interna fotorealista, identidade visual da marca e padrão de mercado brasileiro.`,
   },
   {
     key: "img_c_url",
     name: "Corredores",
     refField: "corredor_ref",
-    prompt:
-      "Gere uma imagem fotorrealista dos corredores internos de um supermercado moderno chamado '{nome}'. Mostre gôndolas bem organizadas, iluminação clara e sinalização de categorias.",
-    editPrompt:
-      "Redesenhe este corredor de supermercado para o '{nome}', aplicando um design moderno com boa iluminação e organização, mantendo a perspectiva.",
+    type: "interno" as const,
+    cenaDesc: `Gerar um corredor interno do supermercado com gôndolas bem organizadas, produtos variados de supermercado brasileiro, sinalização de categorias com a identidade visual da marca, iluminação clara e ambiente limpo e acolhedor. Seguir a planta baixa para posicionamento.`,
   },
   {
     key: "img_d_url",
     name: "Interior / Fundo",
     refField: "interno_ref",
-    prompt:
-      "Gere uma imagem fotorrealista do interior de um supermercado moderno chamado '{nome}'. Mostre seções de produtos, iluminação profissional e decoração atrativa.",
-    editPrompt:
-      "Redesenhe este interior de supermercado para o '{nome}', modernizando o ambiente mas preservando o layout geral.",
+    type: "interno" as const,
+    cenaDesc: `Gerar uma vista interna do fundo do supermercado mostrando seções como açougue, padaria ou hortifruti (conforme o projeto). Ambiente fotorealista, com comunicação visual da marca, produtos brasileiros e layout coerente com a planta baixa.`,
   },
   {
     key: "img_e_url",
     name: "Vista Superior",
     refField: "vista_superior_ref",
-    prompt:
-      "Gere uma imagem fotorrealista de vista aérea/superior de um supermercado moderno chamado '{nome}'. Mostre o layout das gôndolas e seções de forma organizada, como se visto de cima.",
-    editPrompt:
-      "Redesenhe esta vista superior/planta do supermercado '{nome}', modernizando a disposição das seções mantendo a estrutura geral.",
+    type: "externo" as const,
+    vistaDesc: "Vista aérea superior completa do mercado",
+    vistaRegras: `VISTA DESTA GERAÇÃO:
+- Tipo: Vista superior
+- Descrição: vista aérea superior completa do mercado
+
+REGRAS ESPECÍFICAS DESTA VISTA:
+- Gerar exatamente esta perspectiva
+- Manter coerência total com o mesmo projeto arquitetônico
+- Não alterar a estrutura entre as imagens
+- Se houver planta, seguir a planta com prioridade máxima
+- Se houver logo, seguir a logo nas cores e identidade visual
+- Não inventar layout diferente
+- A construção deve parecer o mesmo mercado visto de outro ângulo`,
   },
 ];
+
+type Scene = typeof SCENES[number];
+
+function buildPrompt(scene: Scene, nome: string, cidade: string, obs: string): string {
+  if (scene.type === "externo") {
+    return PROMPT_BASE_EXTERNO(nome, cidade, obs) + "\n" + (scene as any).vistaRegras;
+  }
+  return PROMPT_BASE_INTERNO(nome, cidade, obs) + "\nCENA SOLICITADA:\n" + (scene as any).cenaDesc;
+}
 
 function fillPrompt(
   template: string,
