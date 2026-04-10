@@ -5,6 +5,20 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const GOOGLE_AI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+
+async function urlToBase64Part(url: string) {
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  const b64 = btoa(binary);
+  const ct = res.headers.get("content-type") || "image/png";
+  return { inlineData: { mimeType: ct, data: b64 } };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -20,33 +34,38 @@ Deno.serve(async (req) => {
       );
     }
 
-    const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
-    if (!lovableApiKey) {
+    const googleApiKey = Deno.env.get("GOOGLE_AI_API_KEY");
+    if (!googleApiKey) {
       return new Response(
-        JSON.stringify({ error: "LOVABLE_API_KEY not configured" }),
+        JSON.stringify({ error: "GOOGLE_AI_API_KEY not configured" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Call Lovable AI Gateway to edit the image
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    // Convert reference image to inline data
+    const imgPart = await urlToBase64Part(image_url);
+    if (!imgPart) {
+      return new Response(
+        JSON.stringify({ error: "Failed to fetch source image" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // Call Gemini to edit the image
+    const aiUrl = `${GOOGLE_AI_BASE}/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`;
+    const aiResponse = await fetch(aiUrl, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${lovableApiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: image_url } },
-            ],
-          },
-        ],
-        modalities: ["image", "text"],
+        contents: [{
+          parts: [
+            { text: prompt },
+            imgPart,
+          ],
+        }],
+        generationConfig: {
+          responseModalities: ["TEXT", "IMAGE"],
+        },
       }),
     });
 
@@ -59,33 +78,35 @@ Deno.serve(async (req) => {
     }
 
     const aiData = await aiResponse.json();
-    const editedImageBase64 = aiData.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+    const candidateParts = aiData.candidates?.[0]?.content?.parts || [];
+    let editedBase64: string | null = null;
+    for (const p of candidateParts) {
+      if (p.inlineData) {
+        editedBase64 = `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
+        break;
+      }
+    }
 
-    if (!editedImageBase64) {
+    if (!editedBase64) {
       return new Response(
         JSON.stringify({ error: "AI did not return an edited image" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Upload the edited image to storage
+    // Upload the edited image
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Decode base64 image
-    const base64Data = editedImageBase64.replace(/^data:image\/\w+;base64,/, "");
+    const base64Data = editedBase64.replace(/^data:image\/\w+;base64,/, "");
     const imageBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-
     const fileName = `${project_id}/output/edited_${image_key}_${Date.now()}.png`;
 
     const { error: uploadError } = await supabase.storage
       .from("rota-referencias")
-      .upload(fileName, imageBytes, {
-        contentType: "image/png",
-        upsert: true,
-      });
+      .upload(fileName, imageBytes, { contentType: "image/png", upsert: true });
 
     if (uploadError) {
       return new Response(
@@ -94,24 +115,12 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from("rota-referencias")
-      .getPublicUrl(fileName);
-
+    const { data: publicUrlData } = supabase.storage.from("rota-referencias").getPublicUrl(fileName);
     const newUrl = publicUrlData.publicUrl;
 
-    // Update the project with the new image URL
-    const { error: updateError } = await supabase
-      .from("projects")
-      .update({ [image_key]: newUrl, updated_at: new Date().toISOString() })
-      .eq("id", project_id);
-
-    if (updateError) {
-      return new Response(
-        JSON.stringify({ error: `DB update failed: ${updateError.message}` }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    await supabase.from("projects").update({
+      [image_key]: newUrl, updated_at: new Date().toISOString(),
+    }).eq("id", project_id);
 
     return new Response(
       JSON.stringify({ success: true, new_url: newUrl }),
