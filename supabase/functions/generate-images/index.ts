@@ -187,9 +187,77 @@ ${categoria.observacao ? `- Observação específica: ${categoria.observacao}` :
 `;
 }
 
-// ==================== GOOGLE AI STUDIO HELPERS ====================
+// ==================== VERTEX AI AUTH ====================
 
-const GOOGLE_AI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+async function getAccessToken(): Promise<string> {
+  const credJson = Deno.env.get("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  if (!credJson) throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not set");
+
+  const creds = JSON.parse(credJson);
+  const now = Math.floor(Date.now() / 1000);
+  const header = btoa(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = btoa(JSON.stringify({
+    iss: creds.client_email,
+    sub: creds.client_email,
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+  }));
+
+  const signInput = `${header}.${payload}`;
+
+  // Import the private key
+  const pemContent = creds.private_key
+    .replace("-----BEGIN PRIVATE KEY-----", "")
+    .replace("-----END PRIVATE KEY-----", "")
+    .replace(/\n/g, "");
+  const binaryKey = Uint8Array.from(atob(pemContent), (c) => c.charCodeAt(0));
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    binaryKey,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signatureBuffer = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    new TextEncoder().encode(signInput)
+  );
+
+  // Base64url encode the signature
+  const sigBytes = new Uint8Array(signatureBuffer);
+  let sigBinary = "";
+  for (let i = 0; i < sigBytes.length; i++) sigBinary += String.fromCharCode(sigBytes[i]);
+  const signature = btoa(sigBinary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  const jwt = `${header.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.${payload.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.${signature}`;
+
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  });
+
+  if (!tokenRes.ok) {
+    const err = await tokenRes.text();
+    throw new Error(`Token exchange failed: ${err}`);
+  }
+
+  const tokenData = await tokenRes.json();
+  return tokenData.access_token;
+}
+
+// ==================== VERTEX AI HELPERS ====================
+
+function getVertexBaseUrl(): string {
+  const project = Deno.env.get("GOOGLE_CLOUD_PROJECT_ID") || "rota-489018";
+  const location = Deno.env.get("GOOGLE_CLOUD_LOCATION") || "us-central1";
+  return `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}`;
+}
 
 async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 2): Promise<Response> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -202,7 +270,6 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 2)
   throw new Error("Unreachable");
 }
 
-// Convert a URL image to base64 inline data for Gemini
 async function urlToBase64Part(url: string): Promise<{ inlineData: { mimeType: string; data: string } } | null> {
   try {
     const res = await fetch(url);
@@ -220,20 +287,23 @@ async function urlToBase64Part(url: string): Promise<{ inlineData: { mimeType: s
   }
 }
 
-async function generateImageGemini(apiKey: string, prompt: string, refUrls: string[] = []): Promise<string | null> {
+async function generateImageVertex(accessToken: string, prompt: string, refUrls: string[] = []): Promise<string | null> {
   const parts: any[] = [{ text: prompt }];
-  
-  // Add reference images as inline data
+
   for (const url of refUrls) {
     const part = await urlToBase64Part(url);
     if (part) parts.push(part);
   }
 
-  const url = `${GOOGLE_AI_BASE}/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
-  
+  const baseUrl = getVertexBaseUrl();
+  const url = `${baseUrl}/publishers/google/models/gemini-2.0-flash-exp:generateContent`;
+
   const res = await fetchWithRetry(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${accessToken}`,
+    },
     body: JSON.stringify({
       contents: [{ parts }],
       generationConfig: {
@@ -243,8 +313,12 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
   });
 
   if (!res.ok) {
-    console.error("Gemini image error:", res.status, await res.text());
-    return null;
+    const errText = await res.text();
+    console.error("Vertex image error:", res.status, errText);
+
+    // Fallback: try imagen-3.0-generate-001
+    console.log("Trying Imagen 3 fallback...");
+    return await generateImageImagen3(accessToken, prompt);
   }
 
   const data = await res.json();
@@ -254,30 +328,68 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
       return `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
     }
   }
-  console.error("No image in Gemini response");
+
+  console.error("No image in Vertex Gemini response, trying Imagen 3 fallback...");
+  return await generateImageImagen3(accessToken, prompt);
+}
+
+async function generateImageImagen3(accessToken: string, prompt: string): Promise<string | null> {
+  const baseUrl = getVertexBaseUrl();
+  const url = `${baseUrl}/publishers/google/models/imagen-3.0-generate-001:predict`;
+
+  const res = await fetchWithRetry(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      instances: [{ prompt }],
+      parameters: {
+        sampleCount: 1,
+        aspectRatio: "16:9",
+        safetyFilterLevel: "block_few",
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    console.error("Imagen 3 error:", res.status, await res.text());
+    return null;
+  }
+
+  const data = await res.json();
+  const predictions = data.predictions || [];
+  if (predictions.length > 0 && predictions[0].bytesBase64Encoded) {
+    return `data:image/png;base64,${predictions[0].bytesBase64Encoded}`;
+  }
+
+  console.error("No image in Imagen 3 response");
   return null;
 }
 
-// ==================== VEO VIDEO GENERATION ====================
+// ==================== VEO VIDEO (VERTEX AI) ====================
 
 async function generateDroneVideo(
-  apiKey: string,
+  accessToken: string,
   imageUrl: string,
   dronePrompt: string
 ): Promise<string | null> {
-  // Convert image URL to base64 for Veo
   const imgPart = await urlToBase64Part(imageUrl);
   if (!imgPart) {
     console.error("Failed to load image for video generation");
     return null;
   }
 
-  // Start video generation using Veo via Gemini API
-  const generateUrl = `${GOOGLE_AI_BASE}/models/veo-2.0-generate-001:predictLongRunning?key=${apiKey}`;
-  
+  const baseUrl = getVertexBaseUrl();
+  const generateUrl = `${baseUrl}/publishers/google/models/veo-2.0-generate-001:predictLongRunning`;
+
   const res = await fetchWithRetry(generateUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${accessToken}`,
+    },
     body: JSON.stringify({
       instances: [{
         prompt: dronePrompt,
@@ -300,7 +412,7 @@ async function generateDroneVideo(
 
   const opData = await res.json();
   const operationName = opData.name;
-  
+
   if (!operationName) {
     console.error("No operation name returned from Veo");
     return null;
@@ -309,18 +421,23 @@ async function generateDroneVideo(
   console.log(`Veo operation started: ${operationName}`);
 
   // Poll for completion (max 5 min)
-  const pollUrl = `${GOOGLE_AI_BASE}/${operationName}?key=${apiKey}`;
+  const project = Deno.env.get("GOOGLE_CLOUD_PROJECT_ID") || "rota-489018";
+  const location = Deno.env.get("GOOGLE_CLOUD_LOCATION") || "us-central1";
+  const pollUrl = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
+
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 5000));
-    
-    const pollRes = await fetch(pollUrl);
+
+    const pollRes = await fetch(pollUrl, {
+      headers: { "Authorization": `Bearer ${accessToken}` },
+    });
     if (!pollRes.ok) {
       console.warn(`Poll attempt ${i} failed: ${pollRes.status}`);
       continue;
     }
-    
+
     const pollData = await pollRes.json();
-    
+
     if (pollData.done) {
       const videos = pollData.response?.generatedSamples || pollData.response?.videos || [];
       if (videos.length > 0) {
@@ -328,14 +445,13 @@ async function generateDroneVideo(
         if (videoData) {
           return `data:video/mp4;base64,${videoData}`;
         }
-        // If URI based
         const videoUri = videos[0].video?.uri || videos[0].uri;
         if (videoUri) return videoUri;
       }
       console.error("Veo completed but no video data:", JSON.stringify(pollData.response));
       return null;
     }
-    
+
     if (pollData.error) {
       console.error("Veo error:", JSON.stringify(pollData.error));
       return null;
@@ -347,12 +463,33 @@ async function generateDroneVideo(
 }
 
 async function uploadBase64Video(
-  supabase: any,
-  projectId: string,
-  key: string,
-  base64Url: string
+  supabase: any, projectId: string, key: string, base64Url: string
 ): Promise<string | null> {
-  const base64Data = base64Url.replace(/^data:video\/\w+;base64,/, "");
+  let raw = base64Url;
+  // If it's a GCS URI, download it
+  if (raw.startsWith("gs://") || raw.startsWith("https://storage.googleapis.com")) {
+    try {
+      const fetchUrl = raw.startsWith("gs://")
+        ? `https://storage.googleapis.com/${raw.replace("gs://", "")}`
+        : raw;
+      const res = await fetch(fetchUrl);
+      if (!res.ok) { console.error("Failed to download video from GCS"); return null; }
+      const buf = await res.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      const fileName = `${projectId}/output/${key}_${Date.now()}.mp4`;
+      const { error } = await supabase.storage
+        .from("rota-referencias")
+        .upload(fileName, bytes, { contentType: "video/mp4", upsert: true });
+      if (error) { console.error(`Video upload error: ${error.message}`); return null; }
+      const { data } = supabase.storage.from("rota-referencias").getPublicUrl(fileName);
+      return data.publicUrl;
+    } catch (e) {
+      console.error("GCS download error:", e);
+      return null;
+    }
+  }
+
+  const base64Data = raw.replace(/^data:video\/\w+;base64,/, "");
   const videoBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
   const fileName = `${projectId}/output/${key}_${Date.now()}.mp4`;
 
@@ -411,9 +548,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    const googleApiKey = Deno.env.get("GOOGLE_AI_API_KEY");
-    if (!googleApiKey) {
-      return new Response(JSON.stringify({ error: "GOOGLE_AI_API_KEY not configured" }), {
+    // Get Vertex AI access token
+    let accessToken: string;
+    try {
+      accessToken = await getAccessToken();
+      console.log("Vertex AI access token obtained successfully");
+    } catch (authErr) {
+      console.error("Auth error:", authErr.message);
+      return new Response(JSON.stringify({ error: `Authentication failed: ${authErr.message}` }), {
         status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -426,7 +568,7 @@ Deno.serve(async (req) => {
     // ---- Single image edit mode ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
       console.log(`Editing single image: ${image_key}`);
-      const base64Url = await generateImageGemini(googleApiKey, customPrompt, [image_url]);
+      const base64Url = await generateImageVertex(accessToken, customPrompt, [image_url]);
 
       if (!base64Url) {
         await supabase.from("projects").update({ status: "erro", updated_at: new Date().toISOString() }).eq("id", project_id);
@@ -495,10 +637,13 @@ Deno.serve(async (req) => {
       let generated = 0;
       const generatedUrls: Record<string, string> = {};
 
+      // Refresh token for long-running background work
+      let token = accessToken;
+
       for (const task of sceneTasks) {
         console.log(`Processing scene: ${task.sceneName} (${task.imgKey})`);
         try {
-          const base64Url = await generateImageGemini(googleApiKey, task.prompt, task.refImages);
+          const base64Url = await generateImageVertex(token, task.prompt, task.refImages);
 
           if (base64Url) {
             const publicUrl = await uploadBase64Image(supabase, project_id, task.imgKey.replace("_url", ""), base64Url);
@@ -521,10 +666,14 @@ Deno.serve(async (req) => {
         await new Promise((r) => setTimeout(r, 2000));
       }
 
-      // ---- VIDEO GENERATION (Veo) ----
-      // Video 1: Externo (drone flight around exterior) — uses fachada + vista superior
-      // Video 2: Interno (drone walkthrough inside) — uses entrada/caixas + corredores
+      // Refresh token before video generation (may have expired)
+      try {
+        token = await getAccessToken();
+      } catch (e) {
+        console.error("Failed to refresh token for video generation:", e);
+      }
 
+      // ---- VIDEO GENERATION (Veo via Vertex AI) ----
       const externalImg = generatedUrls["img_a_url"] || generatedUrls["img_e_url"];
       const internalImg = generatedUrls["img_c_url"] || generatedUrls["img_b_url"];
 
@@ -532,10 +681,10 @@ Deno.serve(async (req) => {
         console.log("Generating external drone video...");
         try {
           const dronePrompt = `Smooth cinematic drone flight around a Brazilian supermarket building. The camera starts from a high aerial angle, slowly descends and orbits around the building, showcasing the full facade, parking lot, and surroundings. Smooth camera movement, golden hour lighting, photorealistic, architectural visualization. No people walking. Professional real estate drone footage style.`;
-          
-          const videoBase64 = await generateDroneVideo(googleApiKey, externalImg, dronePrompt);
-          if (videoBase64) {
-            const videoUrl = await uploadBase64Video(supabase, project_id, "video", videoBase64);
+
+          const videoResult = await generateDroneVideo(token, externalImg, dronePrompt);
+          if (videoResult) {
+            const videoUrl = await uploadBase64Video(supabase, project_id, "video", videoResult);
             if (videoUrl) {
               await supabase.from("projects").update({
                 video_url: videoUrl, updated_at: new Date().toISOString(),
@@ -554,10 +703,10 @@ Deno.serve(async (req) => {
         console.log("Generating internal drone video...");
         try {
           const dronePrompt = `Smooth cinematic drone walkthrough inside a Brazilian supermarket. The camera glides slowly through the aisles at eye level, showing organized shelves with products, category signage, clean floors, and warm commercial lighting. Steady and professional camera movement, as if floating through the store. No sudden movements. Photorealistic interior visualization. Professional architectural walkthrough style.`;
-          
-          const videoBase64 = await generateDroneVideo(googleApiKey, internalImg, dronePrompt);
-          if (videoBase64) {
-            const videoUrl = await uploadBase64Video(supabase, project_id, "video_b", videoBase64);
+
+          const videoResult = await generateDroneVideo(token, internalImg, dronePrompt);
+          if (videoResult) {
+            const videoUrl = await uploadBase64Video(supabase, project_id, "video_b", videoResult);
             if (videoUrl) {
               await supabase.from("projects").update({
                 video_b_url: videoUrl, updated_at: new Date().toISOString(),
