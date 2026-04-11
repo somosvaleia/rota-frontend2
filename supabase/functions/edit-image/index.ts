@@ -5,7 +5,75 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const GOOGLE_AI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+// ==================== VERTEX AI AUTH ====================
+
+async function getAccessToken(): Promise<string> {
+  const credJson = Deno.env.get("GOOGLE_APPLICATION_CREDENTIALS_JSON");
+  if (!credJson) throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not set");
+
+  const creds = JSON.parse(credJson);
+  const now = Math.floor(Date.now() / 1000);
+  const header = btoa(JSON.stringify({ alg: "RS256", typ: "JWT" }));
+  const payload = btoa(JSON.stringify({
+    iss: creds.client_email,
+    sub: creds.client_email,
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+    scope: "https://www.googleapis.com/auth/cloud-platform",
+  }));
+
+  const signInput = `${header}.${payload}`;
+
+  const pemContent = creds.private_key
+    .replace("-----BEGIN PRIVATE KEY-----", "")
+    .replace("-----END PRIVATE KEY-----", "")
+    .replace(/\n/g, "");
+  const binaryKey = Uint8Array.from(atob(pemContent), (c) => c.charCodeAt(0));
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    binaryKey,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const signatureBuffer = await crypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5",
+    cryptoKey,
+    new TextEncoder().encode(signInput)
+  );
+
+  const sigBytes = new Uint8Array(signatureBuffer);
+  let sigBinary = "";
+  for (let i = 0; i < sigBytes.length; i++) sigBinary += String.fromCharCode(sigBytes[i]);
+  const signature = btoa(sigBinary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+  const jwt = `${header.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.${payload.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}.${signature}`;
+
+  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
+  });
+
+  if (!tokenRes.ok) {
+    const err = await tokenRes.text();
+    throw new Error(`Token exchange failed: ${err}`);
+  }
+
+  const tokenData = await tokenRes.json();
+  return tokenData.access_token;
+}
+
+// ==================== HELPERS ====================
+
+function getVertexBaseUrl(): string {
+  const project = Deno.env.get("GOOGLE_CLOUD_PROJECT_ID") || "rota-489018";
+  const location = Deno.env.get("GOOGLE_CLOUD_LOCATION") || "us-central1";
+  return `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}`;
+}
 
 async function urlToBase64Part(url: string) {
   const res = await fetch(url);
@@ -34,10 +102,13 @@ Deno.serve(async (req) => {
       );
     }
 
-    const googleApiKey = Deno.env.get("GOOGLE_AI_API_KEY");
-    if (!googleApiKey) {
+    // Get Vertex AI access token
+    let accessToken: string;
+    try {
+      accessToken = await getAccessToken();
+    } catch (authErr) {
       return new Response(
-        JSON.stringify({ error: "GOOGLE_AI_API_KEY not configured" }),
+        JSON.stringify({ error: `Authentication failed: ${authErr.message}` }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -51,11 +122,15 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Call Gemini to edit the image
-    const aiUrl = `${GOOGLE_AI_BASE}/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`;
+    // Call Vertex AI Gemini to edit the image
+    const baseUrl = getVertexBaseUrl();
+    const aiUrl = `${baseUrl}/publishers/google/models/gemini-2.0-flash-exp:generateContent`;
     const aiResponse = await fetch(aiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
       body: JSON.stringify({
         contents: [{
           parts: [
