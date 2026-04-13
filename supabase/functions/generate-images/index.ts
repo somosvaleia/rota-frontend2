@@ -9,64 +9,83 @@ const corsHeaders = {
 // ==================== PROMPTS ====================
 
 const PROMPT_BASE_EXTERNO = (nome: string, cidade: string, obs: string) => `
-Gerar imagens arquitetônicas fotorrealistas de um supermercado brasileiro.
+Você é um especialista em renderização arquitetônica fotorrealista de supermercados brasileiros.
 
-DADOS DO PROJETO:
-- Nome: ${nome || "Mercado"}
-- Cidade: ${cidade || "não informada"}
-- Observações: ${obs || "sem observações adicionais"}
-- Identidade adicional: seguir principalmente a logo, se houver
+PROJETO:
+- Nome: ${nome}
+- Cidade: ${cidade || "cidade não informada"}
+${obs ? `- Observações: ${obs}` : ""}
 
-IDENTIDADE VISUAL (PRIORIDADE ALTA):
-- Usar obrigatoriamente a logo enviada como referência principal de marca.
-- Seguir fielmente as cores predominantes da logo.
-- O letreiro, fachada e comunicação visual devem refletir a marca.
+INSTRUÇÕES CRÍTICAS DE CONSTÂNCIA:
+1. LOGO (PRIORIDADE MÁXIMA): A imagem da logo enviada é a referência ABSOLUTA da identidade visual. Extraia dela:
+   - Paleta de cores exata (use SOMENTE essas cores na fachada, letreiro, comunicação visual)
+   - Nome do mercado exatamente como aparece na logo
+   - Estilo gráfico (moderno, tradicional, etc.)
+   - Aplique a logo fielmente no letreiro da fachada
 
-ESTRUTURA (PRIORIDADE MÁXIMA):
-- A planta enviada deve ser seguida com precisão.
-- A volumetria, proporções e organização arquitetônica devem respeitar a planta.
-- Não inventar uma estrutura diferente.
-- Todas as vistas devem representar o mesmo prédio baseado na planta.
+2. PLANTA BAIXA (ESTRUTURA OBRIGATÓRIA): A planta baixa enviada define:
+   - Dimensões e proporções exatas do prédio
+   - Formato da construção (retangular, L, etc.)
+   - Posição de entrada, estacionamento, áreas
+   - NÃO invente uma estrutura diferente da planta
 
-REFERÊNCIAS COMPLEMENTARES:
-- As referências complementares refinam o estilo, mas não substituem a planta quando ela existir.
+3. LOCALIZAÇÃO - ${cidade || "Brasil"}:
+   - O mercado deve parecer real para esta cidade/região
+   - Vegetação, clima e entorno típicos da região
+   - Padrão construtivo local
+   - Materiais e acabamentos comuns na região
 
-REGRAS GERAIS:
-- Alto realismo
-- Arquitetura comercial brasileira
-- Coerência total entre todas as imagens
-- Mesmo mercado em todos os ângulos
-- Iluminação natural agradável
-- Materiais realistas
-- Sem distorções exageradas
-- Sem textos aleatórios
+4. REFERÊNCIA VISUAL: Se houver imagem de referência para esta vista, use como guia de estilo e composição.
+
+REGRAS:
+- Fotorrealismo extremo (parecer foto real, não render 3D)
+- Arquitetura comercial brasileira real
+- Sem textos aleatórios ou inventados
+- Sem distorções
+- Iluminação natural
 `;
 
 const PROMPT_BASE_INTERNO = (nome: string, cidade: string, obs: string) => `
-Gere uma imagem fotorealista interna de supermercado brasileiro.
+Você é um especialista em renderização de interiores de supermercados brasileiros.
 
-REGRAS OBRIGATÓRIAS:
-- Use a planta baixa enviada como base estrutural principal.
-- Respeite fielmente o layout da planta.
-- A cena deve parecer parte do mesmo mercado em todos os ângulos.
-- Use a identidade visual da logo do mercado na comunicação interna, placas, faixas e ambientação.
-- Não invente um layout diferente da planta.
-- Os produtos e o ambiente devem parecer de um supermercado brasileiro real.
-- Categorias do projeto: sortimento de supermercado brasileiro.
-- Nome do mercado: ${nome || "Mercado"}.
-- Cidade: ${cidade || "não informada"}.
+PROJETO:
+- Nome: ${nome}
+- Cidade: ${cidade || "cidade não informada"}
 ${obs ? `- Observações: ${obs}` : ""}
-`;
 
-const PROMPT_BASE_PRODUTO = (nome: string) => `
-Gere uma imagem fotorealista de produto/material do supermercado "${nome || "Mercado"}".
+INSTRUÇÕES CRÍTICAS DE CONSTÂNCIA:
+1. LOGO: Use a logo enviada para extrair a identidade visual do mercado.
+   - Placas de categoria, faixas e sinalização devem usar as cores da logo
+   - O nome do mercado nas placas deve ser exatamente como na logo
+
+2. PLANTA BAIXA: A planta baixa define o layout interno:
+   - Posição de corredores, caixas, seções
+   - Largura dos corredores
+   - Distribuição das áreas
+   - SIGA a planta, não invente layout
+
+3. LOCALIZAÇÃO - ${cidade || "Brasil"}:
+   - Produtos típicos de supermercado brasileiro real
+   - Marcas e embalagens brasileiras nos produtos
+   - Padrão de supermercado da região
 
 REGRAS:
-- Alto realismo fotográfico
-- Se houver logo, aplicar fielmente as cores e identidade visual da logo
-- Se não houver logo, criar um design moderno e profissional usando o nome do mercado
-- Fundo neutro/clean para destaque do produto
-- Sem textos aleatórios ou distorções
+- Fotorrealismo extremo
+- Interior de supermercado brasileiro real
+- Produtos reais e reconhecíveis
+- Sem textos aleatórios
+- Iluminação comercial branca/neutra
+`;
+
+const PROMPT_BASE_PRODUTO = (nome: string, cidade: string) => `
+Gere uma imagem fotorrealista de um item do supermercado "${nome}" (${cidade || "Brasil"}).
+
+REGRAS DE CONSTÂNCIA:
+- Se houver logo enviada, use EXATAMENTE as cores e o design da logo
+- O item deve ser SIMPLES e LOCALIZADO (padrão supermercado brasileiro comum)
+- Nada sofisticado, nada importado, nada fora da realidade de um supermercado de bairro brasileiro
+- Fundo neutro limpo
+- Fotorrealismo total
 `;
 
 // ==================== SCENES ====================
@@ -76,85 +95,89 @@ interface FixedScene {
   name: string;
   refField: string;
   type: "externo" | "interno" | "produto";
-  vistaRegras?: string;
-  cenaDesc?: string;
-  produtoDesc?: string;
+  scenePrompt: string;
 }
 
 const FIXED_SCENES: FixedScene[] = [
   {
     key: "img_a_url", name: "Fachada", refField: "fachada_ref", type: "externo",
-    vistaRegras: `VISTA DESTA GERAÇÃO:
-- Tipo: Fachada frontal
-- Descrição: vista frontal completa da fachada do supermercado
-
-REGRAS ESPECÍFICAS DESTA VISTA:
-- Gerar exatamente esta perspectiva
-- Letreiro com o nome do mercado bem visível
-- Manter coerência total com o mesmo projeto arquitetônico
-- Se houver planta, seguir a planta com prioridade máxima
-- Se houver logo, seguir a logo nas cores e identidade visual
-- A construção deve parecer o mesmo mercado visto de frente`,
+    scenePrompt: `CENA: Fachada frontal completa do supermercado.
+- Vista frontal, centralizada, mostrando toda a largura da fachada
+- Letreiro principal com o nome do mercado (copiar da logo)
+- Cores da fachada seguindo a paleta da logo
+- Estacionamento frontal se houver na planta
+- Calçada, postes, vegetação local realista`,
   },
   {
     key: "img_b_url", name: "Entrada e Caixas", refField: "caixa_ref", type: "interno",
-    cenaDesc: `Gerar a área de caixas do supermercado, com checkouts posicionados de forma coerente com a planta baixa, fluxo de entrada e saída, visão interna fotorealista, identidade visual da marca e padrão de mercado brasileiro.`,
+    scenePrompt: `CENA: Área de entrada e caixas do supermercado.
+- Checkouts/caixas posicionados conforme a planta baixa
+- Fluxo de entrada e saída visível
+- Caixas com identidade visual do mercado (cores da logo)
+- Sacolas plásticas simples nos caixas
+- Piso, iluminação e acabamento de mercado brasileiro real`,
   },
   {
     key: "img_c_url", name: "Corredores", refField: "corredor_ref", type: "interno",
-    cenaDesc: `Gerar um corredor interno do supermercado com gôndolas bem organizadas, produtos variados de supermercado brasileiro, sinalização de categorias com a identidade visual da marca, iluminação clara e ambiente limpo e acolhedor. Seguir a planta baixa para posicionamento.`,
+    scenePrompt: `CENA: Corredor interno do supermercado.
+- Gôndolas organizadas dos dois lados
+- Produtos brasileiros reais nas prateleiras
+- Sinalização de categorias com as cores da logo do mercado
+- Piso limpo, iluminação comercial
+- Perspectiva central do corredor`,
   },
   {
     key: "img_d_url", name: "Interior / Fundo", refField: "interno_ref", type: "interno",
-    cenaDesc: `Gerar uma vista interna do fundo do supermercado mostrando seções como açougue, padaria ou hortifruti (conforme o projeto). Ambiente fotorealista, com comunicação visual da marca, produtos brasileiros e layout coerente com a planta baixa.`,
+    scenePrompt: `CENA: Área dos fundos do supermercado (açougue/padaria/hortifruti).
+- Seções perecíveis típicas de mercado brasileiro
+- Balcões de atendimento com vitrine refrigerada
+- Comunicação visual usando as cores da logo
+- Produtos frescos brasileiros
+- Layout seguindo a planta baixa`,
   },
   {
     key: "img_e_url", name: "Vista Superior", refField: "vista_superior_ref", type: "externo",
-    vistaRegras: `VISTA DESTA GERAÇÃO:
-- Tipo: Vista superior
-- Descrição: vista aérea superior completa do mercado
-
-REGRAS ESPECÍFICAS DESTA VISTA:
-- Gerar exatamente esta perspectiva
-- Manter coerência total com o mesmo projeto arquitetônico
-- Não alterar a estrutura entre as imagens
-- Se houver planta, seguir a planta com prioridade máxima
-- Se houver logo, seguir a logo nas cores e identidade visual
-- Não inventar layout diferente
-- A construção deve parecer o mesmo mercado visto de outro ângulo`,
+    scenePrompt: `CENA: Vista aérea/superior do supermercado.
+- Drone view mostrando o telhado e entorno
+- MESMA CONSTRUÇÃO da fachada, vista de cima
+- Formato do prédio idêntico à planta baixa
+- Estacionamento, acessos e paisagismo local
+- Vegetação e entorno típicos da cidade/região`,
   },
   {
     key: "img_f_url", name: "Farda / Uniforme", refField: "", type: "produto",
-    produtoDesc: `Gere uma imagem fotorealista de um uniforme/farda completo para funcionários do supermercado "{nome}".
-- Mostrar camisa polo ou camiseta com a identidade visual do mercado
-- Se houver logo, aplicar a logo no peito da camisa e nas cores do uniforme
-- Se não houver logo, criar um design profissional com o nome "{nome}" estampado
-- Incluir avental ou colete se adequado ao estilo do mercado
-- Mostrar o uniforme em manequim ou pessoa, de corpo inteiro
-- Cores devem seguir a paleta da marca
-- Aspecto limpo, profissional e moderno`,
+    scenePrompt: `CENA: Uniforme/farda de funcionário do supermercado.
+IMPORTANTE - DEVE SER SIMPLES E LOCAL:
+- Camiseta polo OU camiseta básica com a logo do mercado no peito
+- Cores da camiseta seguindo as cores da logo
+- Avental simples por cima (opcional)
+- Calça social preta ou jeans
+- NADA sofisticado: é um uniforme de supermercado de bairro brasileiro
+- Mostrar em manequim ou cabide, sem modelo humano
+- Fundo neutro branco/cinza claro`,
   },
   {
     key: "img_g_url", name: "Sacola Plástica", refField: "", type: "produto",
-    produtoDesc: `Gere uma imagem fotorealista de uma sacola plástica personalizada do supermercado "{nome}".
-- Sacola de supermercado padrão brasileiro
-- Se houver logo, aplicar a logo centralizada na sacola
-- Se não houver logo, estampar o nome "{nome}" de forma visível e atrativa
-- Cores da sacola devem seguir a identidade visual da marca
-- Mostrar a sacola de frente, bem enquadrada
-- Fundo neutro para destaque
-- Realismo total no material plástico`,
+    scenePrompt: `CENA: Sacola plástica do supermercado.
+IMPORTANTE - DEVE SER SIMPLES E LOCAL:
+- Sacola plástica SIMPLES, tipo sacolinha de supermercado brasileiro
+- Logo do mercado impressa na sacola (copiar da logo enviada)
+- Cores da sacola seguindo a logo
+- Material plástico comum, não premium
+- Tamanho padrão de supermercado
+- UMA sacola, fundo neutro branco
+- NÃO é sacola ecológica, NÃO é sacola de grife, é sacolinha de mercado`,
   },
   {
     key: "img_h_url", name: "Carrinho de Mercado", refField: "", type: "produto",
-    produtoDesc: `Gere uma imagem fotorealista de um carrinho de supermercado personalizado do "{nome}".
-- Carrinho de supermercado padrão brasileiro, tamanho regular
-- Se houver logo, aplicar a logo na parte frontal do carrinho e/ou na alça
-- Se não houver logo, aplicar o nome "{nome}" de forma visível
-- Cores e detalhes do carrinho devem refletir a identidade visual da marca
-- Carrinho limpo, moderno e bem conservado
-- Fundo neutro ou dentro do ambiente do mercado
-- Alto realismo fotográfico`,
+    scenePrompt: `CENA: Carrinho de supermercado.
+- Carrinho padrão brasileiro de supermercado (metal/arame)
+- Logo do mercado aplicada na parte frontal do carrinho
+- Cores nos detalhes plásticos (alça, protetor) seguindo a logo
+- Carrinho limpo e bem conservado
+- Tamanho padrão, nada especial
+- Fundo neutro ou dentro do mercado
+- Carrinho REAL de mercado brasileiro, não importado`,
   },
 ];
 
@@ -165,9 +188,9 @@ const GONDOLA_KEYS = [
 ];
 
 function buildFixedPrompt(scene: FixedScene, nome: string, cidade: string, obs: string): string {
-  if (scene.type === "externo") return PROMPT_BASE_EXTERNO(nome, cidade, obs) + "\n" + (scene.vistaRegras || "");
-  if (scene.type === "interno") return PROMPT_BASE_INTERNO(nome, cidade, obs) + "\nCENA SOLICITADA:\n" + (scene.cenaDesc || "");
-  return PROMPT_BASE_PRODUTO(nome) + "\n" + (scene.produtoDesc || "").replaceAll("{nome}", nome);
+  if (scene.type === "externo") return PROMPT_BASE_EXTERNO(nome, cidade, obs) + "\n" + scene.scenePrompt;
+  if (scene.type === "interno") return PROMPT_BASE_INTERNO(nome, cidade, obs) + "\n" + scene.scenePrompt;
+  return PROMPT_BASE_PRODUTO(nome, cidade) + "\n" + scene.scenePrompt;
 }
 
 function buildGondolaPrompt(
@@ -175,15 +198,14 @@ function buildGondolaPrompt(
   categoria: { name: string; prateleiras: number; observacao?: string }
 ): string {
   return PROMPT_BASE_INTERNO(nome, cidade, obs) + `
-CENA SOLICITADA:
-Gerar uma gôndola/seção de "${categoria.name}" dentro do supermercado "${nome}".
-- Mostrar a gôndola com ${categoria.prateleiras} prateleiras/níveis de exposição
-- Produtos típicos de "${categoria.name}" em supermercado brasileiro
-- Sinalização da categoria com a identidade visual da marca
-- Layout e organização coerente com a planta baixa
-- Iluminação clara, ambiente limpo e realista
-${categoria.observacao ? `- Observação específica: ${categoria.observacao}` : ""}
-- Se houver imagem de referência para esta gôndola, seguir o estilo visual da referência
+CENA: Gôndola/seção de "${categoria.name}".
+- Gôndola com ${categoria.prateleiras} prateleiras/níveis
+- Produtos típicos de "${categoria.name}" em supermercado brasileiro REAL
+- Marcas e embalagens brasileiras reconhecíveis
+- Sinalização da categoria com as cores da logo do mercado
+- Posição e layout coerente com a planta baixa
+- Se houver imagem de referência para esta categoria, seguir o estilo
+${categoria.observacao ? `- Observação: ${categoria.observacao}` : ""}
 `;
 }
 
@@ -207,7 +229,6 @@ async function getAccessToken(): Promise<string> {
 
   const signInput = `${header}.${payload}`;
 
-  // Import the private key
   const pemContent = creds.private_key
     .replace("-----BEGIN PRIVATE KEY-----", "")
     .replace("-----END PRIVATE KEY-----", "")
@@ -228,7 +249,6 @@ async function getAccessToken(): Promise<string> {
     new TextEncoder().encode(signInput)
   );
 
-  // Base64url encode the signature
   const sigBytes = new Uint8Array(signatureBuffer);
   let sigBinary = "";
   for (let i = 0; i < sigBytes.length; i++) sigBinary += String.fromCharCode(sigBytes[i]);
@@ -259,12 +279,13 @@ function getVertexBaseUrl(): string {
   return `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}`;
 }
 
-async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 2): Promise<Response> {
+async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const res = await fetch(url, options);
     if (res.ok || (res.status < 500 && res.status !== 429)) return res;
-    console.warn(`Attempt ${attempt + 1} failed with ${res.status}, retrying in 5s...`);
-    if (attempt < maxRetries) await new Promise((r) => setTimeout(r, 5000));
+    const wait = Math.min(5000 * (attempt + 1), 30000);
+    console.warn(`Attempt ${attempt + 1} failed with ${res.status}, retrying in ${wait/1000}s...`);
+    if (attempt < maxRetries) await new Promise((r) => setTimeout(r, wait));
     else return res;
   }
   throw new Error("Unreachable");
@@ -287,49 +308,83 @@ async function urlToBase64Part(url: string): Promise<{ inlineData: { mimeType: s
   }
 }
 
+// Primary: Gemini 2.0 Flash (stable version) with reference images
 async function generateImageVertex(accessToken: string, prompt: string, refUrls: string[] = []): Promise<string | null> {
-  const parts: any[] = [{ text: prompt }];
+  // Build parts: first text instruction about references, then reference images, then the prompt
+  const parts: any[] = [];
 
-  for (const url of refUrls) {
-    const part = await urlToBase64Part(url);
-    if (part) parts.push(part);
-  }
-
-  const baseUrl = getVertexBaseUrl();
-  const url = `${baseUrl}/publishers/google/models/gemini-2.0-flash-exp:generateContent`;
-
-  const res = await fetchWithRetry(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: {
-        responseModalities: ["TEXT", "IMAGE"],
-      },
-    }),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error("Vertex image error:", res.status, errText);
-
-    // Fallback: try imagen-3.0-generate-001
-    console.log("Trying Imagen 3 fallback...");
-    return await generateImageImagen3(accessToken, prompt);
-  }
-
-  const data = await res.json();
-  const candidateParts = data.candidates?.[0]?.content?.parts || [];
-  for (const p of candidateParts) {
-    if (p.inlineData) {
-      return `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
+  // Add reference images with explicit instructions
+  const refLabels: string[] = [];
+  for (let i = 0; i < refUrls.length; i++) {
+    const part = await urlToBase64Part(refUrls[i]);
+    if (part) {
+      // Determine what this reference is based on position/content
+      let label = "Referência visual";
+      if (i === 0) label = "LOGO DO MERCADO (use como identidade visual absoluta - cores, nome, estilo)";
+      else if (i === 1) label = "PLANTA BAIXA (use como estrutura e layout obrigatório)";
+      else label = `REFERÊNCIA VISUAL ${i} (use como guia de estilo para esta cena)`;
+      
+      refLabels.push(label);
+      parts.push({ text: `[${label}]:` });
+      parts.push(part);
     }
   }
 
-  console.error("No image in Vertex Gemini response, trying Imagen 3 fallback...");
+  // Add the main prompt at the end
+  if (refLabels.length > 0) {
+    parts.push({ text: `\nIMPORTANTE: As imagens acima são referências OBRIGATÓRIAS. Gere a imagem seguindo fielmente essas referências.\n\n${prompt}` });
+  } else {
+    parts.push({ text: prompt });
+  }
+
+  const baseUrl = getVertexBaseUrl();
+  
+  // Try multiple models in order of preference
+  const models = [
+    "gemini-2.0-flash-001",
+    "gemini-2.0-flash",
+    "gemini-1.5-flash-002",
+  ];
+
+  for (const model of models) {
+    const url = `${baseUrl}/publishers/google/models/${model}:generateContent`;
+    console.log(`Trying model: ${model} with ${refUrls.length} reference images`);
+
+    const res = await fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          responseModalities: ["IMAGE", "TEXT"],
+          temperature: 0.4,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error(`Model ${model} error:`, res.status, errText);
+      continue; // try next model
+    }
+
+    const data = await res.json();
+    const candidateParts = data.candidates?.[0]?.content?.parts || [];
+    for (const p of candidateParts) {
+      if (p.inlineData) {
+        console.log(`✓ Image generated with model ${model}`);
+        return `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
+      }
+    }
+
+    console.warn(`Model ${model} returned no image data, trying next...`);
+  }
+
+  // Final fallback: Imagen 3 (no reference images, text-only)
+  console.log("All Gemini models failed, trying Imagen 3 fallback (text-only)...");
   return await generateImageImagen3(accessToken, prompt);
 }
 
@@ -420,8 +475,6 @@ async function generateDroneVideo(
 
   console.log(`Veo operation started: ${operationName}`);
 
-  // Poll for completion (max 5 min)
-  const project = Deno.env.get("GOOGLE_CLOUD_PROJECT_ID") || "rota-489018";
   const location = Deno.env.get("GOOGLE_CLOUD_LOCATION") || "us-central1";
   const pollUrl = `https://${location}-aiplatform.googleapis.com/v1/${operationName}`;
 
@@ -466,7 +519,6 @@ async function uploadBase64Video(
   supabase: any, projectId: string, key: string, base64Url: string
 ): Promise<string | null> {
   let raw = base64Url;
-  // If it's a GCS URI, download it
   if (raw.startsWith("gs://") || raw.startsWith("https://storage.googleapis.com")) {
     try {
       const fetchUrl = raw.startsWith("gs://")
@@ -548,7 +600,6 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Get Vertex AI access token
     let accessToken: string;
     try {
       accessToken = await getAccessToken();
@@ -599,6 +650,8 @@ Deno.serve(async (req) => {
     const logoUrl = refs.logo as string | undefined;
     const plantaUrl = refs.planta as string | undefined;
 
+    console.log(`References - Logo: ${logoUrl ? "YES" : "NO"}, Planta: ${plantaUrl ? "YES" : "NO"}`);
+
     interface SceneTask {
       imgKey: string;
       sceneName: string;
@@ -608,7 +661,7 @@ Deno.serve(async (req) => {
 
     const sceneTasks: SceneTask[] = [];
 
-    // Fixed scenes
+    // Fixed scenes - always pass logo first, then planta, then scene-specific ref
     for (const scene of FIXED_SCENES) {
       const prompt = buildFixedPrompt(scene, nome, cidadeVal, obsVal);
       const refImages: string[] = [];
@@ -636,12 +689,10 @@ Deno.serve(async (req) => {
       let hasError = false;
       let generated = 0;
       const generatedUrls: Record<string, string> = {};
-
-      // Refresh token for long-running background work
       let token = accessToken;
 
       for (const task of sceneTasks) {
-        console.log(`Processing scene: ${task.sceneName} (${task.imgKey})`);
+        console.log(`Processing scene: ${task.sceneName} (${task.imgKey}) with ${task.refImages.length} refs`);
         try {
           const base64Url = await generateImageVertex(token, task.prompt, task.refImages);
 
@@ -663,17 +714,28 @@ Deno.serve(async (req) => {
           console.error(`✗ ${task.sceneName} error:`, err.message);
           hasError = true;
         }
-        await new Promise((r) => setTimeout(r, 2000));
+        // Delay between requests to avoid rate limiting
+        await new Promise((r) => setTimeout(r, 3000));
+
+        // Refresh token every 5 images
+        if (generated > 0 && generated % 5 === 0) {
+          try {
+            token = await getAccessToken();
+            console.log("Token refreshed");
+          } catch (e) {
+            console.warn("Token refresh failed, continuing with existing token");
+          }
+        }
       }
 
-      // Refresh token before video generation (may have expired)
+      // Refresh token before video generation
       try {
         token = await getAccessToken();
       } catch (e) {
         console.error("Failed to refresh token for video generation:", e);
       }
 
-      // ---- VIDEO GENERATION (Veo via Vertex AI) ----
+      // ---- VIDEO GENERATION ----
       const externalImg = generatedUrls["img_a_url"] || generatedUrls["img_e_url"];
       const internalImg = generatedUrls["img_c_url"] || generatedUrls["img_b_url"];
 
@@ -681,7 +743,6 @@ Deno.serve(async (req) => {
         console.log("Generating external drone video...");
         try {
           const dronePrompt = `Smooth cinematic drone flight around a Brazilian supermarket building. The camera starts from a high aerial angle, slowly descends and orbits around the building, showcasing the full facade, parking lot, and surroundings. Smooth camera movement, golden hour lighting, photorealistic, architectural visualization. No people walking. Professional real estate drone footage style.`;
-
           const videoResult = await generateDroneVideo(token, externalImg, dronePrompt);
           if (videoResult) {
             const videoUrl = await uploadBase64Video(supabase, project_id, "video", videoResult);
@@ -691,8 +752,6 @@ Deno.serve(async (req) => {
               }).eq("id", project_id);
               console.log("✓ External drone video done");
             }
-          } else {
-            console.error("✗ External drone video - no video returned");
           }
         } catch (err) {
           console.error("✗ External drone video error:", err.message);
@@ -702,8 +761,7 @@ Deno.serve(async (req) => {
       if (internalImg) {
         console.log("Generating internal drone video...");
         try {
-          const dronePrompt = `Smooth cinematic drone walkthrough inside a Brazilian supermarket. The camera glides slowly through the aisles at eye level, showing organized shelves with products, category signage, clean floors, and warm commercial lighting. Steady and professional camera movement, as if floating through the store. No sudden movements. Photorealistic interior visualization. Professional architectural walkthrough style.`;
-
+          const dronePrompt = `Smooth cinematic drone walkthrough inside a Brazilian supermarket. The camera glides slowly through the aisles at eye level, showing organized shelves with products, category signage, clean floors, and warm commercial lighting. Steady and professional camera movement. Photorealistic interior visualization.`;
           const videoResult = await generateDroneVideo(token, internalImg, dronePrompt);
           if (videoResult) {
             const videoUrl = await uploadBase64Video(supabase, project_id, "video_b", videoResult);
@@ -713,15 +771,12 @@ Deno.serve(async (req) => {
               }).eq("id", project_id);
               console.log("✓ Internal drone video done");
             }
-          } else {
-            console.error("✗ Internal drone video - no video returned");
           }
         } catch (err) {
           console.error("✗ Internal drone video error:", err.message);
         }
       }
 
-      // Final status
       await supabase.from("projects").update({
         status: hasError && generated === 0 ? "erro" : "concluido",
         updated_at: new Date().toISOString(),
