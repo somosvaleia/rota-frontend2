@@ -79,7 +79,12 @@ export default function ProjectDetail() {
       )
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    const interval = window.setInterval(fetchProject, 8000);
+
+    return () => {
+      window.clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, [id]);
 
   const handleDelete = async () => {
@@ -125,6 +130,8 @@ export default function ProjectDetail() {
     .filter((v) => v.url);
 
   const hasMedia = images.length > 0 || videos.length > 0;
+  const totalExpectedImages = 8 + (Array.isArray(project.categorias) ? project.categorias.length : 0);
+  const totalExpectedVideos = 2;
 
   return (
     <AppLayout>
@@ -246,7 +253,10 @@ export default function ProjectDetail() {
                 </div>
                 <h3 className="font-display text-lg font-semibold mb-2">Gerando Projeto...</h3>
                 <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                  A IA está processando as referências e gerando as imagens e vídeos do seu supermercado. Isso pode levar alguns minutos.
+                  Progresso atual: {images.length}/{totalExpectedImages} imagens • {videos.length}/{totalExpectedVideos} vídeos.
+                </p>
+                <p className="text-sm text-muted-foreground max-w-md mx-auto mt-2">
+                  A geração acontece em etapas e o status será atualizado automaticamente ao concluir.
                 </p>
               </>
             ) : project.status === "erro" ? (

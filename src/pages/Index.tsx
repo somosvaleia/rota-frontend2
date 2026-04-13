@@ -34,7 +34,6 @@ export default function Dashboard() {
 
     fetchProjects();
 
-    // Realtime subscription
     const channel = supabase
       .channel("projects-realtime")
       .on(
@@ -46,7 +45,10 @@ export default function Dashboard() {
       )
       .subscribe();
 
+    const interval = window.setInterval(fetchProjects, 10000);
+
     return () => {
+      window.clearInterval(interval);
       supabase.removeChannel(channel);
     };
   }, []);

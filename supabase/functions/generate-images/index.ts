@@ -582,6 +582,81 @@ async function uploadBase64Image(
 
 // ==================== MAIN HANDLER ====================
 
+const IMAGE_KEYS = [
+  "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
+  "img_f_url", "img_g_url", "img_h_url", "img_i_url", "img_j_url",
+  "img_k_url", "img_l_url", "img_m_url", "img_n_url", "img_o_url",
+  "img_p_url", "img_q_url", "img_r_url", "img_s_url", "img_t_url",
+] as const;
+
+const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"] as const;
+const IMAGE_BATCH_SIZE = 1;
+
+type SceneTask = {
+  imgKey: string;
+  sceneName: string;
+  prompt: string;
+  refImages: string[];
+};
+
+function buildSceneTasks(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>): SceneTask[] {
+  const logoUrl = refs.logo as string | undefined;
+  const plantaUrl = refs.planta as string | undefined;
+  const sceneTasks: SceneTask[] = [];
+
+  for (const scene of FIXED_SCENES) {
+    const prompt = buildFixedPrompt(scene, nome, cidade, obs);
+    const refImages: string[] = [];
+    if (logoUrl) refImages.push(logoUrl);
+    if (plantaUrl && scene.type !== "produto") refImages.push(plantaUrl);
+    const sceneRefUrl = scene.refField ? (refs[scene.refField] as string | undefined) : undefined;
+    if (sceneRefUrl) refImages.push(sceneRefUrl);
+    sceneTasks.push({ imgKey: scene.key, sceneName: scene.name, prompt, refImages });
+  }
+
+  const enabledCats = Array.isArray(categorias)
+    ? categorias.filter((c: any) => c?.enabled !== false)
+    : [];
+
+  for (let i = 0; i < enabledCats.length && i < GONDOLA_KEYS.length; i++) {
+    const cat = enabledCats[i];
+    const prompt = buildGondolaPrompt(nome, cidade, obs, cat);
+    const refImages: string[] = [];
+    if (logoUrl) refImages.push(logoUrl);
+    if (plantaUrl) refImages.push(plantaUrl);
+    if (cat.refImage) refImages.push(cat.refImage);
+    sceneTasks.push({ imgKey: GONDOLA_KEYS[i], sceneName: `Gôndola: ${cat.name}`, prompt, refImages });
+  }
+
+  return sceneTasks;
+}
+
+async function invokeNextStage(payload: Record<string, unknown>) {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing backend configuration for self-invocation");
+  }
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/generate-images`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${serviceRoleKey}`,
+      "apikey": serviceRoleKey,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Failed to schedule next stage: ${res.status} ${errorText}`);
+  }
+
+  await res.text();
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -589,14 +664,24 @@ Deno.serve(async (req) => {
 
   try {
     const {
-      project_id, tipo, nome_mercado, cidade, observacoes,
-      categorias, imagens,
-      image_key, image_url, prompt: customPrompt,
+      project_id,
+      tipo,
+      nome_mercado,
+      cidade,
+      observacoes,
+      categorias,
+      imagens,
+      image_key,
+      image_url,
+      prompt: customPrompt,
+      stage = "start",
+      scene_offset = 0,
     } = await req.json();
 
     if (!project_id) {
       return new Response(JSON.stringify({ error: "project_id is required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -607,7 +692,8 @@ Deno.serve(async (req) => {
     } catch (authErr) {
       console.error("Auth error:", authErr.message);
       return new Response(JSON.stringify({ error: `Authentication failed: ${authErr.message}` }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -616,7 +702,6 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // ---- Single image edit mode ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
       console.log(`Editing single image: ${image_key}`);
       const base64Url = await generateImageVertex(accessToken, customPrompt, [image_url]);
@@ -624,133 +709,113 @@ Deno.serve(async (req) => {
       if (!base64Url) {
         await supabase.from("projects").update({ status: "erro", updated_at: new Date().toISOString() }).eq("id", project_id);
         return new Response(JSON.stringify({ error: "AI did not return an edited image" }), {
-          status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
       const publicUrl = await uploadBase64Image(supabase, project_id, image_key.replace("_url", ""), base64Url);
       if (publicUrl) {
         await supabase.from("projects").update({
-          [image_key]: publicUrl, status: "concluido", updated_at: new Date().toISOString(),
+          [image_key]: publicUrl,
+          status: "concluido",
+          updated_at: new Date().toISOString(),
         }).eq("id", project_id);
       }
 
       return new Response(JSON.stringify({ success: true, new_url: publicUrl }), {
-        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // ---- Full generation ----
-    console.log(`Starting full generation for project ${project_id}`);
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("id", project_id)
+      .single();
 
-    const refs = imagens || {};
-    const nome = nome_mercado || "Mercado";
-    const cidadeVal = cidade || "";
-    const obsVal = observacoes || "";
-    const logoUrl = refs.logo as string | undefined;
-    const plantaUrl = refs.planta as string | undefined;
-
-    console.log(`References - Logo: ${logoUrl ? "YES" : "NO"}, Planta: ${plantaUrl ? "YES" : "NO"}`);
-
-    interface SceneTask {
-      imgKey: string;
-      sceneName: string;
-      prompt: string;
-      refImages: string[];
+    if (projectError || !project) {
+      return new Response(JSON.stringify({ error: "Project not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const sceneTasks: SceneTask[] = [];
+    const refs = (imagens && Object.keys(imagens).length > 0 ? imagens : project.imagens || {}) as Record<string, any>;
+    const nome = nome_mercado || project.nome_mercado || "Mercado";
+    const cidadeVal = cidade || project.cidade || "";
+    const obsVal = observacoes || project.observacoes || "";
+    const categoriasVal = Array.isArray(categorias) && categorias.length > 0
+      ? categorias
+      : (Array.isArray(project.categorias) ? project.categorias : []);
+    const sceneTasks = buildSceneTasks(nome, cidadeVal, obsVal, categoriasVal, refs);
 
-    // Fixed scenes - always pass logo first, then planta, then scene-specific ref
-    for (const scene of FIXED_SCENES) {
-      const prompt = buildFixedPrompt(scene, nome, cidadeVal, obsVal);
-      const refImages: string[] = [];
-      if (logoUrl) refImages.push(logoUrl);
-      if (plantaUrl && scene.type !== "produto") refImages.push(plantaUrl);
-      const sceneRefUrl = scene.refField ? (refs[scene.refField] as string | undefined) : undefined;
-      if (sceneRefUrl) refImages.push(sceneRefUrl);
-      sceneTasks.push({ imgKey: scene.key, sceneName: scene.name, prompt, refImages });
+    if (stage === "start") {
+      await supabase.from("projects").update({
+        status: "processando",
+        updated_at: new Date().toISOString(),
+      }).eq("id", project_id);
     }
 
-    // Gondola scenes
-    const enabledCats = Array.isArray(categorias) ? categorias.filter((c: any) => c.enabled) : [];
-    for (let i = 0; i < enabledCats.length && i < GONDOLA_KEYS.length; i++) {
-      const cat = enabledCats[i];
-      const prompt = buildGondolaPrompt(nome, cidadeVal, obsVal, cat);
-      const refImages: string[] = [];
-      if (logoUrl) refImages.push(logoUrl);
-      if (plantaUrl) refImages.push(plantaUrl);
-      if (cat.refImage) refImages.push(cat.refImage);
-      sceneTasks.push({ imgKey: GONDOLA_KEYS[i], sceneName: `Gôndola: ${cat.name}`, prompt, refImages });
-    }
+    if (stage === "start" || stage === "images") {
+      const currentTask = sceneTasks[scene_offset];
 
-    // Background processing
-    const backgroundProcess = (async () => {
-      let hasError = false;
-      let generated = 0;
-      const generatedUrls: Record<string, string> = {};
-      let token = accessToken;
-
-      for (const task of sceneTasks) {
-        console.log(`Processing scene: ${task.sceneName} (${task.imgKey}) with ${task.refImages.length} refs`);
+      if (currentTask) {
+        console.log(`Processing scene ${scene_offset + 1}/${sceneTasks.length}: ${currentTask.sceneName}`);
         try {
-          const base64Url = await generateImageVertex(token, task.prompt, task.refImages);
-
+          const base64Url = await generateImageVertex(accessToken, currentTask.prompt, currentTask.refImages);
           if (base64Url) {
-            const publicUrl = await uploadBase64Image(supabase, project_id, task.imgKey.replace("_url", ""), base64Url);
+            const publicUrl = await uploadBase64Image(supabase, project_id, currentTask.imgKey.replace("_url", ""), base64Url);
             if (publicUrl) {
               await supabase.from("projects").update({
-                [task.imgKey]: publicUrl, updated_at: new Date().toISOString(),
+                [currentTask.imgKey]: publicUrl,
+                updated_at: new Date().toISOString(),
               }).eq("id", project_id);
-              generatedUrls[task.imgKey] = publicUrl;
-              console.log(`✓ ${task.sceneName} done`);
-              generated++;
+              console.log(`✓ ${currentTask.sceneName} done`);
             }
           } else {
-            console.error(`✗ ${task.sceneName} - no image returned`);
-            hasError = true;
+            console.error(`✗ ${currentTask.sceneName} - no image returned`);
           }
         } catch (err) {
-          console.error(`✗ ${task.sceneName} error:`, err.message);
-          hasError = true;
-        }
-        // Delay between requests to avoid rate limiting
-        await new Promise((r) => setTimeout(r, 3000));
-
-        // Refresh token every 5 images
-        if (generated > 0 && generated % 5 === 0) {
-          try {
-            token = await getAccessToken();
-            console.log("Token refreshed");
-          } catch (e) {
-            console.warn("Token refresh failed, continuing with existing token");
-          }
+          console.error(`✗ ${currentTask.sceneName} error:`, err.message);
         }
       }
 
-      // Refresh token before video generation
-      try {
-        token = await getAccessToken();
-      } catch (e) {
-        console.error("Failed to refresh token for video generation:", e);
+      const nextOffset = scene_offset + IMAGE_BATCH_SIZE;
+      if (nextOffset < sceneTasks.length) {
+        await invokeNextStage({ project_id, stage: "images", scene_offset: nextOffset });
+        return new Response(JSON.stringify({ success: true, stage: "images", next_offset: nextOffset }), {
+          status: 202,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
       }
 
-      // ---- VIDEO GENERATION ----
-      const externalImg = generatedUrls["img_a_url"] || generatedUrls["img_e_url"];
-      const internalImg = generatedUrls["img_c_url"] || generatedUrls["img_b_url"];
+      await invokeNextStage({ project_id, stage: "video_external" });
+      return new Response(JSON.stringify({ success: true, stage: "video_external" }), {
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
-      if (externalImg) {
-        console.log("Generating external drone video...");
+    if (stage === "video_external") {
+      const externalImg = project.img_a_url || project.img_e_url;
+      if (externalImg && !project.video_url) {
         try {
-          const dronePrompt = `Smooth cinematic drone flight around a Brazilian supermarket building. The camera starts from a high aerial angle, slowly descends and orbits around the building, showcasing the full facade, parking lot, and surroundings. Smooth camera movement, golden hour lighting, photorealistic, architectural visualization. No people walking. Professional real estate drone footage style.`;
-          const videoResult = await generateDroneVideo(token, externalImg, dronePrompt);
+          console.log("Generating external drone video...");
+          const videoResult = await generateDroneVideo(
+            accessToken,
+            externalImg,
+            "Smooth cinematic drone flight around a Brazilian supermarket building. The camera starts from a high aerial angle, slowly descends and orbits around the building, showcasing the full facade, parking lot, and surroundings. Smooth camera movement, golden hour lighting, photorealistic, architectural visualization. No people walking. Professional real estate drone footage style."
+          );
+
           if (videoResult) {
             const videoUrl = await uploadBase64Video(supabase, project_id, "video", videoResult);
             if (videoUrl) {
               await supabase.from("projects").update({
-                video_url: videoUrl, updated_at: new Date().toISOString(),
+                video_url: videoUrl,
+                updated_at: new Date().toISOString(),
               }).eq("id", project_id);
-              console.log("✓ External drone video done");
             }
           }
         } catch (err) {
@@ -758,18 +823,31 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (internalImg) {
-        console.log("Generating internal drone video...");
+      await invokeNextStage({ project_id, stage: "video_internal" });
+      return new Response(JSON.stringify({ success: true, stage: "video_internal" }), {
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (stage === "video_internal") {
+      const internalImg = project.img_c_url || project.img_b_url;
+      if (internalImg && !project.video_b_url) {
         try {
-          const dronePrompt = `Smooth cinematic drone walkthrough inside a Brazilian supermarket. The camera glides slowly through the aisles at eye level, showing organized shelves with products, category signage, clean floors, and warm commercial lighting. Steady and professional camera movement. Photorealistic interior visualization.`;
-          const videoResult = await generateDroneVideo(token, internalImg, dronePrompt);
+          console.log("Generating internal drone video...");
+          const videoResult = await generateDroneVideo(
+            accessToken,
+            internalImg,
+            "Smooth cinematic drone walkthrough inside a Brazilian supermarket. The camera glides slowly through the aisles at eye level, showing organized shelves with products, category signage, clean floors, and warm commercial lighting. Steady and professional camera movement. Photorealistic interior visualization."
+          );
+
           if (videoResult) {
             const videoUrl = await uploadBase64Video(supabase, project_id, "video_b", videoResult);
             if (videoUrl) {
               await supabase.from("projects").update({
-                video_b_url: videoUrl, updated_at: new Date().toISOString(),
+                video_b_url: videoUrl,
+                updated_at: new Date().toISOString(),
               }).eq("id", project_id);
-              console.log("✓ Internal drone video done");
             }
           }
         } catch (err) {
@@ -777,30 +855,45 @@ Deno.serve(async (req) => {
         }
       }
 
-      await supabase.from("projects").update({
-        status: hasError && generated === 0 ? "erro" : "concluido",
-        updated_at: new Date().toISOString(),
-      }).eq("id", project_id);
-
-      console.log(`Generation complete. ${generated}/${sceneTasks.length} images + videos.`);
-    })();
-
-    // @ts-ignore
-    if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
-      // @ts-ignore
-      EdgeRuntime.waitUntil(backgroundProcess);
-    } else {
-      backgroundProcess.catch((e) => console.error("Background error:", e));
+      await invokeNextStage({ project_id, stage: "finalize" });
+      return new Response(JSON.stringify({ success: true, stage: "finalize" }), {
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    return new Response(
-      JSON.stringify({ success: true, message: "Generation started", total_scenes: sceneTasks.length }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-    );
+    const { data: completedProject } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("id", project_id)
+      .single();
+
+    const generatedImages = IMAGE_KEYS.filter((key) => Boolean(completedProject?.[key])).length;
+    const generatedVideos = VIDEO_KEYS.filter((key) => Boolean(completedProject?.[key])).length;
+    const finalStatus = generatedImages > 0 || generatedVideos > 0 ? "concluido" : "erro";
+
+    await supabase.from("projects").update({
+      status: finalStatus,
+      updated_at: new Date().toISOString(),
+    }).eq("id", project_id);
+
+    console.log(`Generation complete. ${generatedImages} images and ${generatedVideos} videos.`);
+
+    return new Response(JSON.stringify({
+      success: true,
+      stage: "finalize",
+      status: finalStatus,
+      generated_images: generatedImages,
+      generated_videos: generatedVideos,
+    }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (err) {
     console.error("Fatal error:", err.message);
     return new Response(JSON.stringify({ error: err.message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
