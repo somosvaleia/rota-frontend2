@@ -7,14 +7,13 @@ const corsHeaders = {
 
 // ==================== IMAGE HELPERS ====================
 
-async function urlToBase64Part(url: string, maxBytes = 500000): Promise<{ inlineData: { mimeType: string; data: string } } | null> {
+async function urlToBase64Part(url: string, label: string, maxBytes = 800000): Promise<{ textPart: any; imgPart: any } | null> {
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) { console.warn(`Ref fetch failed (${res.status}): ${url.substring(0, 60)}`); return null; }
     const buf = await res.arrayBuffer();
-    // Skip if too large (>500KB) to avoid memory issues
     if (buf.byteLength > maxBytes) {
-      console.warn(`Ref image too large (${(buf.byteLength/1024).toFixed(0)}KB), skipping: ${url.substring(0, 80)}`);
+      console.warn(`Ref too large (${(buf.byteLength/1024).toFixed(0)}KB), skipping`);
       return null;
     }
     const bytes = new Uint8Array(buf);
@@ -22,45 +21,46 @@ async function urlToBase64Part(url: string, maxBytes = 500000): Promise<{ inline
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
     const b64 = btoa(binary);
     const ct = res.headers.get("content-type") || "image/png";
-    return { inlineData: { mimeType: ct, data: b64 } };
+    return {
+      textPart: { text: `[${label}]` },
+      imgPart: { inlineData: { mimeType: ct, data: b64 } },
+    };
   } catch (e) {
-    console.error("Failed to fetch ref:", e);
+    console.error("Ref fetch error:", e);
     return null;
   }
 }
 
-// ==================== GOOGLE AI STUDIO ====================
+// ==================== GEMINI (PRINCIPAL) ====================
 
-async function generateImageGemini(apiKey: string, prompt: string, refUrls: string[] = []): Promise<string | null> {
+async function generateImageGemini(apiKey: string, prompt: string, refUrls: string[], refLabels: string[]): Promise<string | null> {
   const parts: any[] = [];
-
-  const refLabels = [
-    "LOGO DO MERCADO - identidade visual: cores, nome, estilo",
-    "PLANTA BAIXA - estrutura e layout do prédio",
-    "REFERÊNCIA VISUAL - guia de estilo para esta cena",
-  ];
-
   let loadedRefs = 0;
+
   for (let i = 0; i < refUrls.length; i++) {
-    const part = await urlToBase64Part(refUrls[i]);
-    if (part) {
-      parts.push({ text: `[${refLabels[Math.min(i, refLabels.length - 1)]}]:` });
-      parts.push(part);
+    const label = refLabels[i] || "REFERÊNCIA";
+    const ref = await urlToBase64Part(refUrls[i], label);
+    if (ref) {
+      parts.push(ref.textPart);
+      parts.push(ref.imgPart);
       loadedRefs++;
     }
   }
 
   if (loadedRefs > 0) {
-    parts.push({ text: `\nAs imagens acima são referências OBRIGATÓRIAS. Siga-as fielmente.\n\n${prompt}` });
+    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS. Você DEVE copiar fielmente as cores, formas, proporções e identidade visual dessas referências na imagem gerada. NÃO invente elementos que não estejam nas referências.\n\n${prompt}` });
   } else {
     parts.push({ text: prompt });
   }
 
-  const models = ["gemini-2.0-flash-exp", "gemini-2.0-flash-preview-image-generation"];
+  const models = [
+    "gemini-2.0-flash-preview-image-generation",
+    "gemini-2.0-flash-exp",
+  ];
 
   for (const model of models) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    console.log(`Trying ${model} with ${loadedRefs} refs`);
+    console.log(`[GEMINI] Tentando ${model} com ${loadedRefs} refs`);
 
     try {
       const res = await fetch(url, {
@@ -68,37 +68,40 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ role: "user", parts }],
-          generationConfig: { responseModalities: ["IMAGE", "TEXT"], temperature: 0.4 },
+          generationConfig: {
+            responseModalities: ["IMAGE", "TEXT"],
+            temperature: 0.2,
+          },
         }),
       });
 
       if (!res.ok) {
         const errText = await res.text();
-        console.error(`${model} error ${res.status}: ${errText.substring(0, 200)}`);
+        console.error(`[GEMINI] ${model} erro ${res.status}: ${errText.substring(0, 300)}`);
         continue;
       }
 
       const data = await res.json();
       for (const p of (data.candidates?.[0]?.content?.parts || [])) {
         if (p.inlineData) {
-          console.log(`✓ Image from ${model}`);
+          console.log(`[GEMINI] ✓ Imagem gerada por ${model}`);
           return `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
         }
       }
-      console.warn(`${model} no image data`);
+      console.warn(`[GEMINI] ${model} sem dados de imagem na resposta`);
     } catch (e) {
-      console.error(`${model} error:`, e.message);
+      console.error(`[GEMINI] ${model} erro:`, e.message);
     }
   }
 
   return null;
 }
 
-// ==================== VERTEX AI IMAGEN 3 FALLBACK ====================
+// ==================== VERTEX AI (FALLBACK) ====================
 
 async function getVertexAccessToken(): Promise<string> {
   const credJson = Deno.env.get("GOOGLE_APPLICATION_CREDENTIALS_JSON");
-  if (!credJson) throw new Error("No credentials");
+  if (!credJson) throw new Error("Sem credenciais Vertex");
   const creds = JSON.parse(credJson);
   const now = Math.floor(Date.now() / 1000);
   const toB64Url = (s: string) => btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -126,11 +129,12 @@ async function getVertexAccessToken(): Promise<string> {
   return (await tokenRes.json()).access_token;
 }
 
-async function generateImageImagen3(accessToken: string, prompt: string): Promise<string | null> {
+async function generateImageVertex(accessToken: string, prompt: string): Promise<string | null> {
   const project = Deno.env.get("GOOGLE_CLOUD_PROJECT_ID") || "rota-489018";
   const location = Deno.env.get("GOOGLE_CLOUD_LOCATION") || "us-central1";
   const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/imagen-3.0-generate-001:predict`;
 
+  console.log(`[VERTEX] Tentando Imagen 3.0 como fallback`);
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -140,13 +144,16 @@ async function generateImageImagen3(accessToken: string, prompt: string): Promis
         parameters: { sampleCount: 1, aspectRatio: "16:9", safetyFilterLevel: "block_few" },
       }),
     });
-    if (!res.ok) { console.error("Imagen3:", res.status, await res.text()); return null; }
+    if (!res.ok) {
+      console.error("[VERTEX] Imagen3 erro:", res.status, await res.text());
+      return null;
+    }
     const data = await res.json();
     if (data.predictions?.[0]?.bytesBase64Encoded) {
-      console.log("✓ Image from Imagen 3");
+      console.log("[VERTEX] ✓ Imagem gerada por Imagen 3.0");
       return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
     }
-  } catch (e) { console.error("Imagen3:", e.message); }
+  } catch (e) { console.error("[VERTEX] Imagen3 erro:", e.message); }
   return null;
 }
 
@@ -161,33 +168,66 @@ async function uploadBase64Image(sb: any, projectId: string, key: string, base64
   return sb.storage.from("rota-referencias").getPublicUrl(fileName).data.publicUrl;
 }
 
-// ==================== PROMPTS ====================
+// ==================== PROMPTS COM CONSTÂNCIA ====================
 
 function promptExterno(nome: string, cidade: string, obs: string, scene: string): string {
-  return `Renderização fotorrealista de supermercado brasileiro de bairro.
-PROJETO: "${nome}" em ${cidade || "Brasil"}. ${obs || ""}
-REGRAS: Logo = identidade visual (cores, nome no letreiro). Planta = estrutura obrigatória. Localização = realidade de ${cidade || "Brasil"}.
-Fotorrealismo extremo. Arquitetura comercial brasileira. Iluminação natural. Sem textos inventados.
-${scene}`;
+  return `Crie uma renderização 3D FOTORREALISTA de alta qualidade de um supermercado brasileiro de bairro.
+
+PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
+${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
+
+REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
+1. A LOGO fornecida como referência define TUDO: nome do mercado no letreiro, paleta de cores da fachada, identidade visual completa.
+2. A PLANTA BAIXA fornecida define a ESTRUTURA: formato do prédio, quantidade de andares, estacionamento, dimensões proporcionais.
+3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local, iluminação natural coerente.
+
+PROIBIÇÕES: NÃO invente nome diferente da logo. NÃO mude as cores da logo. NÃO altere a estrutura da planta. NÃO coloque elementos que não existem na realidade de ${cidade || "Brasil"}.
+
+ESTILO: Fotorrealismo extremo. Qualidade de foto profissional de arquitetura. Iluminação natural. Resolução alta.
+
+CENA: ${scene}`;
 }
 
 function promptInterno(nome: string, cidade: string, obs: string, scene: string): string {
-  return `Renderização fotorrealista de interior de supermercado brasileiro de bairro.
-PROJETO: "${nome}" em ${cidade || "Brasil"}. ${obs || ""}
-REGRAS: Logo = identidade visual (placas, sinalização). Planta = layout dos corredores e seções. Produtos brasileiros REAIS, marcas reconhecíveis.
-Fotorrealismo extremo. Iluminação comercial branca.
-${scene}`;
+  return `Crie uma renderização 3D FOTORREALISTA de alta qualidade do INTERIOR de um supermercado brasileiro de bairro.
+
+PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
+${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
+
+REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
+1. A LOGO fornecida define: placas internas, sinalização de seções, cores das gôndolas e comunicação visual em TODO o interior.
+2. A PLANTA BAIXA fornecida define: layout dos corredores, posição das seções (açougue, padaria, hortifruti, caixas), fluxo de clientes.
+3. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
+
+PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mude cores da identidade visual.
+
+ESTILO: Fotorrealismo extremo. Iluminação comercial fluorescente branca. Piso cerâmico claro. Teto com estrutura metálica aparente.
+
+CENA: ${scene}`;
 }
 
 function promptProduto(nome: string, cidade: string, scene: string): string {
-  return `Foto de item de supermercado "${nome}" (${cidade || "Brasil"}).
-Use as cores da logo. Item SIMPLES de mercado de bairro. Fundo neutro. Fotorrealismo.
-${scene}`;
+  return `Crie uma foto FOTORREALISTA de um item/acessório de supermercado brasileiro de bairro chamado "${nome}".
+
+REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
+1. A LOGO fornecida define: as cores exatas e o nome/símbolo que deve aparecer no item.
+2. O item deve ser SIMPLES e FUNCIONAL, típico de mercado de bairro brasileiro. NADA sofisticado ou premium.
+3. Fundo neutro (branco ou cinza claro). Iluminação de estúdio profissional.
+
+PROIBIÇÕES: NÃO invente cores diferentes da logo. NÃO faça design sofisticado/premium. Deve parecer item REAL de mercadinho.
+
+CENA: ${scene}`;
 }
 
 // ==================== SCENES ====================
 
-interface SceneTask { imgKey: string; sceneName: string; prompt: string; refImages: string[]; }
+interface SceneTask {
+  imgKey: string;
+  sceneName: string;
+  prompt: string;
+  refUrls: string[];
+  refLabels: string[];
+}
 
 const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url","img_s_url","img_t_url"];
 
@@ -196,42 +236,55 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const planta = refs.planta as string | undefined;
   const tasks: SceneTask[] = [];
 
-  const mkRefs = (type: string, extra?: string) => {
-    const r: string[] = [];
-    if (logo) r.push(logo);
-    if (planta && type !== "produto") r.push(planta);
-    if (extra) r.push(extra);
-    return r;
+  const mkRefs = (type: string, extra?: string): { urls: string[]; labels: string[] } => {
+    const urls: string[] = [];
+    const labels: string[] = [];
+    if (logo) {
+      urls.push(logo);
+      labels.push("LOGO DO MERCADO — use estas cores, este nome e este símbolo em TODA a imagem");
+    }
+    if (planta && type !== "produto") {
+      urls.push(planta);
+      labels.push("PLANTA BAIXA — siga esta estrutura, proporções e layout EXATAMENTE");
+    }
+    if (extra) {
+      urls.push(extra);
+      labels.push("REFERÊNCIA VISUAL ADICIONAL — use como guia de estilo para esta cena específica");
+    }
+    return { urls, labels };
   };
 
   const fixed = [
-    { key: "img_a_url", name: "Fachada", type: "externo", ref: "fachada_ref", scene: "Fachada frontal completa. Vista frontal centralizada. Letreiro com nome da logo. Cores da logo na fachada. Estacionamento se na planta. Vegetação local." },
-    { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área de entrada e caixas. Checkouts conforme planta. Identidade visual da logo. Sacolas plásticas simples." },
-    { key: "img_c_url", name: "Corredores", type: "interno", ref: "corredor_ref", scene: "Corredor interno. Gôndolas dos dois lados. Produtos brasileiros. Sinalização com cores da logo. Perspectiva central." },
-    { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Fundos: açougue/padaria/hortifruti. Balcões refrigerados. Comunicação visual da logo." },
-    { key: "img_e_url", name: "Vista Superior", type: "externo", ref: "vista_superior_ref", scene: "Vista aérea drone. Telhado e entorno. Formato = planta baixa. Paisagismo local." },
-    { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme: camiseta polo com logo no peito. Cores da logo. SIMPLES. Em manequim, fundo neutro." },
-    { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES. Logo impressa. Cores da logo. Plástico comum. Fundo neutro." },
-    { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho padrão brasileiro metal/arame. Logo na frente. Cores da logo nos detalhes. Fundo neutro." },
+    { key: "img_a_url", name: "Fachada", type: "externo", ref: "fachada_ref", scene: "Fachada frontal completa do supermercado. Vista frontal centralizada. O LETREIRO deve conter EXATAMENTE o nome e cores da LOGO. Estacionamento conforme a PLANTA BAIXA. Vegetação típica de " + cidade + ". Calçada brasileira." },
+    { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área de entrada com caixas registradoras. Quantidade de checkouts conforme PLANTA BAIXA. Sinalização com cores da LOGO. Sacolas plásticas simples com logo." },
+    { key: "img_c_url", name: "Corredores", type: "interno", ref: "corredor_ref", scene: "Corredor principal interno. Gôndolas dos dois lados com produtos brasileiros. Placas de seção nas cores da LOGO. Perspectiva central profunda." },
+    { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Área dos fundos: açougue, padaria e hortifruti conforme PLANTA BAIXA. Balcões refrigerados. Comunicação visual com cores da LOGO." },
+    { key: "img_e_url", name: "Vista Superior", type: "externo", ref: "vista_superior_ref", scene: "Vista aérea (drone) do supermercado. O formato do telhado e a implantação devem seguir EXATAMENTE a PLANTA BAIXA. Entorno urbano de " + cidade + "." },
+    { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme de funcionário: camiseta polo SIMPLES com a LOGO bordada no peito esquerdo. Cores EXATAS da logo. Em cabide ou manequim. Fundo neutro." },
+    { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES de supermercado com a LOGO impressa. Plástico branco ou na cor principal da logo. Sacola comum de mercadinho brasileiro. Fundo neutro." },
+    { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame). LOGO aplicada na parte frontal. Detalhes na cor da logo. Carrinho SIMPLES e funcional. Fundo neutro." },
   ];
 
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
+    const { urls, labels } = mkRefs(s.type, refUrl);
     let prompt: string;
     if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene);
     else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene);
     else prompt = promptProduto(nome, cidade, s.scene);
-    tasks.push({ imgKey: s.key, sceneName: s.name, prompt, refImages: mkRefs(s.type, refUrl) });
+    tasks.push({ imgKey: s.key, sceneName: s.name, prompt, refUrls: urls, refLabels: labels });
   }
 
   const cats = Array.isArray(categorias) ? categorias.filter((c: any) => c?.enabled !== false) : [];
   for (let i = 0; i < cats.length && i < GONDOLA_KEYS.length; i++) {
     const c = cats[i];
+    const { urls, labels } = mkRefs("interno", c.refImage);
     tasks.push({
       imgKey: GONDOLA_KEYS[i],
       sceneName: `Gôndola: ${c.name}`,
-      prompt: promptInterno(nome, cidade, obs, `Gôndola de "${c.name}". ${c.prateleiras || 3} prateleiras. Produtos brasileiros reais. Marcas reconhecíveis. ${c.observacao || ""}`),
-      refImages: mkRefs("interno", c.refImage),
+      prompt: promptInterno(nome, cidade, obs, `Gôndola/seção de "${c.name}". ${c.prateleiras || 3} prateleiras. Produtos brasileiros REAIS de marcas conhecidas. Sinalização com cores da LOGO. ${c.observacao || ""}`),
+      refUrls: urls,
+      refLabels: labels,
     });
   }
 
@@ -241,17 +294,21 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
 // ==================== SELF-INVOKE ====================
 
 async function invokeNextStage(payload: Record<string, unknown>) {
-  const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-images`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
-      "apikey": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) console.error("Self-invoke failed:", res.status, await res.text());
-  else await res.text(); // consume body
+  try {
+    const res = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-images`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+        "apikey": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) console.error("Self-invoke falhou:", res.status, await res.text());
+    else await res.text();
+  } catch (e) {
+    console.error("Self-invoke erro:", e.message);
+  }
 }
 
 // ==================== MAIN HANDLER ====================
@@ -276,23 +333,23 @@ Deno.serve(async (req) => {
 
     const apiKey = Deno.env.get("GOOGLE_AI_API_KEY");
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: "API key not configured" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ error: "GOOGLE_AI_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // ---- Single image edit ----
+    // ---- Edição de imagem individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
-      const base64 = await generateImageGemini(apiKey, customPrompt, [image_url]);
-      if (!base64) return new Response(JSON.stringify({ error: "No image" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const base64 = await generateImageGemini(apiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
+      if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
       if (url) await sb.from("projects").update({ [image_key]: url, status: "concluido", updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ success: true, new_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ---- Full generation (recursive per scene) ----
+    // ---- Geração completa (recursiva por cena) ----
     const { data: project } = await sb.from("projects").select("*").eq("id", project_id).single();
-    if (!project) return new Response(JSON.stringify({ error: "Not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    if (!project) return new Response(JSON.stringify({ error: "Projeto não encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     const refs = imagens && Object.keys(imagens).length > 0 ? imagens : ((project.imagens as Record<string, any>) || {});
     const nome = nome_mercado || project.nome_mercado || "Mercado";
@@ -301,69 +358,70 @@ Deno.serve(async (req) => {
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
     const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refs);
 
-    // Mark as processing on start
+    // Marcar como processando no início
     if (stage === "start") {
       await sb.from("projects").update({ status: "processando", updated_at: new Date().toISOString() }).eq("id", project_id);
+      console.log(`[START] Projeto "${nome}" em ${cidadeVal} — ${scenes.length} cenas, refs: logo=${!!refs.logo}, planta=${!!refs.planta}`);
     }
 
-    // Process current scene
+    // Processar cena atual
     if (stage === "start" || stage === "images") {
       const current = scenes[scene_offset];
       if (current) {
-        console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refImages.length} refs)`);
+        console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
 
         try {
-          // Try Gemini (with refs) first
-          let base64 = await generateImageGemini(apiKey, current.prompt, current.refImages);
+          // 1. GEMINI (principal) — com referências visuais
+          let base64 = await generateImageGemini(apiKey, current.prompt, current.refUrls, current.refLabels);
 
-          // Fallback: Imagen 3 (text only)
+          // 2. VERTEX/IMAGEN 3 (fallback) — só texto
           if (!base64) {
+            console.log(`[FALLBACK] Gemini falhou para ${current.sceneName}, tentando Vertex...`);
             try {
               const vToken = await getVertexAccessToken();
-              base64 = await generateImageImagen3(vToken, current.prompt);
-            } catch (e) { console.error("Imagen3 fallback failed:", e.message); }
+              base64 = await generateImageVertex(vToken, current.prompt);
+            } catch (e) { console.error("[FALLBACK] Vertex falhou:", e.message); }
           }
 
           if (base64) {
             const url = await uploadBase64Image(sb, project_id, current.imgKey.replace("_url", ""), base64);
             if (url) {
               await sb.from("projects").update({ [current.imgKey]: url, updated_at: new Date().toISOString() }).eq("id", project_id);
-              console.log(`✓ ${current.sceneName} done`);
+              console.log(`✓ ${current.sceneName} concluída`);
             }
           } else {
-            console.error(`✗ ${current.sceneName} failed`);
+            console.error(`✗ ${current.sceneName} — todos os provedores falharam`);
           }
         } catch (err) {
           console.error(`✗ ${current.sceneName}:`, err.message);
         }
       }
 
-      // Next scene or finalize
+      // Próxima cena ou finalizar
       const next = scene_offset + 1;
       if (next < scenes.length) {
-        // Chain to next scene
         await invokeNextStage({ project_id, stage: "images", scene_offset: next });
-        return new Response(JSON.stringify({ stage: "images", next }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        return new Response(JSON.stringify({ stage: "images", scene: next, total: scenes.length }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // All scenes done -> finalize
+      // Todas as cenas processadas -> finalizar
       await invokeNextStage({ project_id, stage: "finalize" });
       return new Response(JSON.stringify({ stage: "finalize" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ---- Finalize ----
+    // ---- Finalizar ----
     if (stage === "finalize") {
       const { data: final } = await sb.from("projects").select("*").eq("id", project_id).single();
       const count = IMAGE_KEYS.filter(k => Boolean(final?.[k])).length;
       const status = count > 0 ? "concluido" : "erro";
       await sb.from("projects").update({ status, updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`✓ Finalized: ${status} (${count} images)`);
+      console.log(`✓ Finalizado: ${status} (${count} imagens geradas)`);
       return new Response(JSON.stringify({ status, images: count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    return new Response(JSON.stringify({ error: "Unknown stage" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: "Estágio desconhecido" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
-    console.error("Fatal:", err.message);
+    console.error("Erro fatal:", err.message);
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
