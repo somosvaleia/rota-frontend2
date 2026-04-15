@@ -54,8 +54,8 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
   }
 
   const models = [
-    "gemini-2.5-flash-preview-image-generation",
     "gemini-2.5-flash-image",
+    "gemini-2.0-flash-exp-image-generation",
   ];
 
   for (const model of models) {
