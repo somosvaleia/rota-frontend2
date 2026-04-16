@@ -177,13 +177,20 @@ PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
 
 REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
-1. A LOGO fornecida como referência define TUDO: nome do mercado no letreiro, paleta de cores da fachada, identidade visual completa.
-2. A PLANTA BAIXA fornecida define a ESTRUTURA: formato do prédio, quantidade de andares, estacionamento, dimensões proporcionais.
-3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local, iluminação natural coerente.
+1. A LOGO fornecida define TUDO: nome do mercado no letreiro, paleta de cores da fachada, identidade visual completa.
+2. A PLANTA BAIXA é o PROJETO ARQUITETÔNICO DO MERCADO. Você DEVE analisar a planta baixa e reproduzir FIELMENTE:
+   - O formato exato do prédio (retangular, em L, etc)
+   - A posição da entrada principal
+   - As dimensões e proporções reais
+   - A quantidade e posição de portas/janelas
+   - O estacionamento se indicado na planta
+   - A orientação do edifício
+   A planta baixa NÃO é decorativa — ela é o PROJETO REAL do mercado que deve ser construído visualmente.
+3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local.
 
-PROIBIÇÕES: NÃO invente nome diferente da logo. NÃO mude as cores da logo. NÃO altere a estrutura da planta. NÃO coloque elementos que não existem na realidade de ${cidade || "Brasil"}.
+PROIBIÇÕES: NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa.
 
-ESTILO: Fotorrealismo extremo. Qualidade de foto profissional de arquitetura. Iluminação natural. Resolução alta.
+ESTILO: Fotorrealismo extremo. Qualidade de foto profissional de arquitetura. Iluminação natural.
 
 CENA: ${scene}`;
 }
@@ -195,13 +202,20 @@ PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
 
 REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
-1. A LOGO fornecida define: placas internas, sinalização de seções, cores das gôndolas e comunicação visual em TODO o interior.
-2. A PLANTA BAIXA fornecida define: layout dos corredores, posição das seções (açougue, padaria, hortifruti, caixas), fluxo de clientes.
-3. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
+1. A LOGO fornecida define: placas internas, sinalização de seções, cores das gôndolas e comunicação visual.
+2. A PLANTA BAIXA é o PROJETO ARQUITETÔNICO. Analise-a e reproduza FIELMENTE:
+   - A largura e comprimento dos corredores
+   - A posição exata de cada seção (açougue, padaria, hortifruti, caixas) conforme indicado na planta
+   - O fluxo de circulação dos clientes
+   - A disposição das gôndolas e ilhas conforme o layout da planta
+   - As áreas de serviço (depósito, câmara fria) nas posições da planta
+   A planta baixa define EXATAMENTE onde cada coisa deve estar. NÃO invente posições.
+3. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
+4. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
 
-PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mude cores da identidade visual.
+PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola.
 
-ESTILO: Fotorrealismo extremo. Iluminação comercial fluorescente branca. Piso cerâmico claro. Teto com estrutura metálica aparente.
+ESTILO: Fotorrealismo extremo. Iluminação comercial fluorescente branca. Piso cerâmico claro.
 
 CENA: ${scene}`;
 }
@@ -278,11 +292,24 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const cats = Array.isArray(categorias) ? categorias.filter((c: any) => c?.enabled !== false) : [];
   for (let i = 0; i < cats.length && i < GONDOLA_KEYS.length; i++) {
     const c = cats[i];
+    const gondolaRefLabel = c.refImage
+      ? "REFERÊNCIA EXATA DA GÔNDOLA — copie FIELMENTE este modelo de gôndola, estilo de prateleira, disposição e tipo de produtos"
+      : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
+    // Override the generic label for gondola ref with specific one
+    if (c.refImage && gondolaRefLabel && labels.length > 0) {
+      labels[labels.length - 1] = gondolaRefLabel;
+    }
+    const gondolaScene = `Gôndola/seção de "${c.name}" com EXATAMENTE ${c.prateleiras || 3} prateleiras visíveis.
+${c.refImage ? "IMPORTANTE: Uma imagem de referência da gôndola foi fornecida. Você DEVE reproduzir FIELMENTE o mesmo estilo, modelo e disposição da gôndola mostrada na referência." : ""}
+Produtos brasileiros REAIS de marcas conhecidas adequados para a seção "${c.name}".
+Placa de sinalização da seção "${c.name}" nas cores da LOGO.
+A posição desta gôndola no mercado deve seguir o layout da PLANTA BAIXA.
+${c.observacao || ""}`;
     tasks.push({
       imgKey: GONDOLA_KEYS[i],
       sceneName: `Gôndola: ${c.name}`,
-      prompt: promptInterno(nome, cidade, obs, `Gôndola/seção de "${c.name}". ${c.prateleiras || 3} prateleiras. Produtos brasileiros REAIS de marcas conhecidas. Sinalização com cores da LOGO. ${c.observacao || ""}`),
+      prompt: promptInterno(nome, cidade, obs, gondolaScene),
       refUrls: urls,
       refLabels: labels,
     });
