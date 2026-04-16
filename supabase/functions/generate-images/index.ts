@@ -7,7 +7,7 @@ const corsHeaders = {
 
 // ==================== IMAGE HELPERS ====================
 
-async function urlToBase64Part(url: string, label: string, maxBytes = 800000): Promise<{ textPart: any; imgPart: any } | null> {
+async function urlToBase64Part(url: string, label: string, maxBytes = 4_500_000): Promise<{ textPart: any; imgPart: any } | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) { console.warn(`Ref fetch failed (${res.status}): ${url.substring(0, 60)}`); return null; }
@@ -97,6 +97,72 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
   return null;
 }
 
+async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome = "Mercado", cidade = "Brasil"): Promise<string> {
+  if (!plantaUrl) return "";
+
+  const plantaRef = await urlToBase64Part(
+    plantaUrl,
+    "PLANTA BAIXA / FOTO SATELITAL / IMPLANTAÇÃO — interprete como vista superior do terreno e do formato do mercado, NÃO como imagem a ser copiada literalmente na perspectiva final",
+  );
+
+  if (!plantaRef) return "";
+
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          role: "user",
+          parts: [
+            { text: `Você vai analisar uma PLANTA BAIXA, implantação ou foto satelital do terreno do projeto "${nome}" em ${cidade || "Brasil"}.
+
+IMPORTANTE:
+- Essa imagem é uma vista DE CIMA.
+- Ela representa terreno, contorno, implantação, medidas, acessos e layout.
+- NÃO trate como textura, fachada pronta ou referência estética.
+- O objetivo é extrair RESTRIÇÕES ESPACIAIS REAIS para construir um supermercado coerente em perspectiva 3D.
+
+Responda em texto curto e objetivo, em português, com estes tópicos:
+1. FORMATO/FOOTPRINT do prédio ou terreno
+2. ORIENTAÇÃO e volumetria principal
+3. POSIÇÃO PROVÁVEL da entrada principal
+4. POSIÇÃO de estacionamento/carga/apoio, se houver indícios
+5. SETORIZAÇÃO INTERNA provável (caixas, corredores, fundos, apoio)
+6. RESTRIÇÕES OBRIGATÓRIAS que a imagem final deve respeitar
+
+Se algo não estiver claro, diga "não identificado" em vez de inventar.` },
+            plantaRef.textPart,
+            plantaRef.imgPart,
+          ],
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          maxOutputTokens: 700,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      console.error("[PLANTA] Erro na análise:", res.status, (await res.text()).substring(0, 300));
+      return "";
+    }
+
+    const data = await res.json();
+    const text = (data.candidates?.[0]?.content?.parts || [])
+      .map((part: any) => typeof part.text === "string" ? part.text : "")
+      .join("\n")
+      .trim();
+
+    if (text) console.log(`[PLANTA] Resumo estrutural gerado: ${text.substring(0, 220)}...`);
+    return text;
+  } catch (e) {
+    console.error("[PLANTA] Falha ao analisar planta:", e.message);
+    return "";
+  }
+}
+
 // ==================== VERTEX AI (FALLBACK) ====================
 
 async function getVertexAccessToken(): Promise<string> {
@@ -170,46 +236,52 @@ async function uploadBase64Image(sb: any, projectId: string, key: string, base64
 
 // ==================== PROMPTS COM CONSTÂNCIA ====================
 
-function promptExterno(nome: string, cidade: string, obs: string, scene: string): string {
+function promptExterno(nome: string, cidade: string, obs: string, scene: string, plantaResumo = ""): string {
   return `Crie uma renderização 3D FOTORREALISTA de alta qualidade de um supermercado brasileiro de bairro.
 
 PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
 
+${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA/TERRENO (OBRIGATÓRIO RESPEITAR):\n${plantaResumo}\n` : ""}
+
 REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
 1. A LOGO fornecida define TUDO: nome do mercado no letreiro, paleta de cores da fachada, identidade visual completa.
-2. A PLANTA BAIXA é o PROJETO ARQUITETÔNICO DO MERCADO. Você DEVE analisar a planta baixa e reproduzir FIELMENTE:
-   - O formato exato do prédio (retangular, em L, etc)
+2. A PLANTA BAIXA é uma VISTA SUPERIOR do terreno/implantação do mercado. Ela NÃO é uma arte para ser copiada literalmente na imagem final.
+   Você deve CONVERTER a planta em um edifício 3D construído e reproduzir FIELMENTE:
+   - O footprint exato do prédio (retangular, em L, trapézio, recuos, encaixes, etc)
    - A posição da entrada principal
    - As dimensões e proporções reais
-   - A quantidade e posição de portas/janelas
-   - O estacionamento se indicado na planta
+   - A frente, lateral, fundos e orientação do edifício no lote
+   - O estacionamento, doca/carga e áreas externas se indicados na planta
    - A orientação do edifício
-   A planta baixa NÃO é decorativa — ela é o PROJETO REAL do mercado que deve ser construído visualmente.
+   A planta baixa NÃO é decorativa — ela é o MAPA ARQUITETÔNICO da volumetria e implantação reais do mercado.
 3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local.
 
-PROIBIÇÕES: NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa.
+PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa.
 
 ESTILO: Fotorrealismo extremo. Qualidade de foto profissional de arquitetura. Iluminação natural.
 
 CENA: ${scene}`;
 }
 
-function promptInterno(nome: string, cidade: string, obs: string, scene: string): string {
+function promptInterno(nome: string, cidade: string, obs: string, scene: string, plantaResumo = ""): string {
   return `Crie uma renderização 3D FOTORREALISTA de alta qualidade do INTERIOR de um supermercado brasileiro de bairro.
 
 PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
 
+${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA/TERRENO (OBRIGATÓRIO RESPEITAR):\n${plantaResumo}\n` : ""}
+
 REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
 1. A LOGO fornecida define: placas internas, sinalização de seções, cores das gôndolas e comunicação visual.
-2. A PLANTA BAIXA é o PROJETO ARQUITETÔNICO. Analise-a e reproduza FIELMENTE:
+2. A PLANTA BAIXA é o PROJETO ARQUITETÔNICO visto DE CIMA. Você deve traduzi-la para um interior coerente em perspectiva 3D e reproduzir FIELMENTE:
    - A largura e comprimento dos corredores
    - A posição exata de cada seção (açougue, padaria, hortifruti, caixas) conforme indicado na planta
    - O fluxo de circulação dos clientes
    - A disposição das gôndolas e ilhas conforme o layout da planta
    - As áreas de serviço (depósito, câmara fria) nas posições da planta
-   A planta baixa define EXATAMENTE onde cada coisa deve estar. NÃO invente posições.
+   - O sentido da entrada até os fundos conforme a organização espacial da planta
+   A planta baixa define EXATAMENTE onde cada coisa deve estar. NÃO invente posições e NÃO trate a planta como imagem decorativa.
 3. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
 4. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
 
@@ -245,7 +317,7 @@ interface SceneTask {
 
 const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url","img_s_url","img_t_url"];
 
-function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>): SceneTask[] {
+function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
   const logo = refs.logo as string | undefined;
   const planta = refs.planta as string | undefined;
   const tasks: SceneTask[] = [];
@@ -259,7 +331,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     }
     if (planta && type !== "produto") {
       urls.push(planta);
-      labels.push("PLANTA BAIXA — siga esta estrutura, proporções e layout EXATAMENTE");
+      labels.push("PLANTA BAIXA / FOTO SATELITAL DO TERRENO — interprete como VISTA SUPERIOR do lote e do layout. Use para extrair footprint, proporções, entrada, orientação, estacionamento e setorização. NÃO copie a imagem literalmente na cena final.");
     }
     if (extra) {
       urls.push(extra);
@@ -283,8 +355,8 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
     let prompt: string;
-    if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene);
-    else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene);
+    if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo);
+    else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo);
     else prompt = promptProduto(nome, cidade, s.scene);
     tasks.push({ imgKey: s.key, sceneName: s.name, prompt, refUrls: urls, refLabels: labels });
   }
@@ -309,7 +381,7 @@ ${c.observacao || ""}`;
     tasks.push({
       imgKey: GONDOLA_KEYS[i],
       sceneName: `Gôndola: ${c.name}`,
-      prompt: promptInterno(nome, cidade, obs, gondolaScene),
+       prompt: promptInterno(nome, cidade, obs, gondolaScene, plantaResumo),
       refUrls: urls,
       refLabels: labels,
     });
@@ -352,7 +424,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { project_id, tipo, nome_mercado, cidade, observacoes, categorias, imagens, image_key, image_url, prompt: customPrompt, stage = "start", scene_offset = 0 } = body;
+    const { project_id, tipo, nome_mercado, cidade, observacoes, categorias, imagens, image_key, image_url, prompt: customPrompt, stage = "start", scene_offset = 0, floor_plan_summary = "" } = body;
 
     if (!project_id) {
       return new Response(JSON.stringify({ error: "project_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -383,12 +455,14 @@ Deno.serve(async (req) => {
     const cidadeVal = cidade || project.cidade || "";
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
-    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refs);
+    const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(apiKey, refs.planta, nome, cidadeVal);
+    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refs, plantaResumo);
 
     // Marcar como processando no início
     if (stage === "start") {
       await sb.from("projects").update({ status: "processando", updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`[START] Projeto "${nome}" em ${cidadeVal} — ${scenes.length} cenas, refs: logo=${!!refs.logo}, planta=${!!refs.planta}`);
+      if (plantaResumo) console.log(`[START] Resumo estrutural da planta ativo`);
     }
 
     // Processar cena atual
@@ -427,7 +501,7 @@ Deno.serve(async (req) => {
       // Próxima cena ou finalizar
       const next = scene_offset + 1;
       if (next < scenes.length) {
-        await invokeNextStage({ project_id, stage: "images", scene_offset: next });
+        await invokeNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo });
         return new Response(JSON.stringify({ stage: "images", scene: next, total: scenes.length }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
