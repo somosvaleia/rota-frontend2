@@ -355,6 +355,13 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
+
+    // CONSTÂNCIA: injeta a FACHADA já gerada como referência absoluta nas cenas que precisam bater com o exterior
+    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_e_url")) {
+      urls.push(fachadaGerada);
+      labels.push("FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
+    }
+
     let prompt: string;
     if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo);
     else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo);
