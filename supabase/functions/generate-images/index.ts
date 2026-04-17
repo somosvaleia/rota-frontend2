@@ -31,6 +31,10 @@ async function urlToBase64Part(url: string, label: string, maxBytes = 4_500_000)
   }
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // ==================== GEMINI (PRINCIPAL) ====================
 
 async function generateImageGemini(apiKey: string, prompt: string, refUrls: string[], refLabels: string[]): Promise<string | null> {
@@ -48,7 +52,7 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
   }
 
   if (loadedRefs > 0) {
-    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS. Você DEVE copiar fielmente as cores, formas, proporções e identidade visual dessas referências na imagem gerada. NÃO invente elementos que não estejam nas referências.\n\n${prompt}` });
+    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS E VINCULANTES. Cada etiqueta anterior define o papel exato de cada referência. Você DEVE preservar fielmente arquitetura, paisagismo, materiais, volumetria, medidas proporcionais, posição da entrada, tipologia de gôndolas e identidade visual. Todas as cenas precisam representar O MESMO PROJETO REAL, sem reinterpretar aleatoriamente entre imagens. NÃO invente elementos fora das referências e NÃO contradiga a planta baixa resumida no prompt.\n\n${prompt}` });
   } else {
     parts.push({ text: prompt });
   }
@@ -70,7 +74,7 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
           contents: [{ role: "user", parts }],
           generationConfig: {
             responseModalities: ["IMAGE", "TEXT"],
-            temperature: 0.2,
+            temperature: 0.1,
           },
         }),
       });
@@ -90,7 +94,7 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
       }
       console.warn(`[GEMINI] ${model} sem dados de imagem na resposta`);
     } catch (e) {
-      console.error(`[GEMINI] ${model} erro:`, e.message);
+      console.error(`[GEMINI] ${model} erro:`, getErrorMessage(e));
     }
   }
 
@@ -127,11 +131,13 @@ IMPORTANTE:
 
 Responda em texto curto e objetivo, em português, com estes tópicos:
 1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio ou terreno
-2. FRENTE DO MERCADO — lado que mais parece ser a fachada/entrada principal
-3. ACESSOS E APOIOS — estacionamento, doca, carga, recuos, circulação externa
-4. LAYOUT INTERNO OBRIGATÓRIO — entrada, caixas, corredores, setores e fundos
-5. ELEMENTOS QUE NÃO PODEM SER INVENTADOS — diga claramente o que precisa ser preservado
-6. INSTRUÇÃO FINAL DE CONVERSÃO — descreva em uma frase como transformar a vista superior em render 3D coerente
+2. MEDIDAS E PROPORÇÕES OBRIGATÓRIAS — liste TODAS as medidas, cotas, larguras, comprimentos, módulos, proporções e quantidades visíveis na planta; se houver números, copie-os explicitamente
+3. FRENTE DO MERCADO — lado que mais parece ser a fachada/entrada principal
+4. ACESSOS E APOIOS — estacionamento, doca, carga, recuos, circulação externa
+5. LAYOUT INTERNO OBRIGATÓRIO — entrada, portas, caixas, corredores, setores, fundos e fluxo
+6. MAPA DE CONSTÂNCIA — o que precisa permanecer igual em fachada, entrada, corredores, vista superior e gôndolas para representar o mesmo projeto
+7. ELEMENTOS QUE NÃO PODEM SER INVENTADOS — diga claramente o que precisa ser preservado
+8. INSTRUÇÃO FINAL DE CONVERSÃO — descreva em uma frase como transformar a vista superior em render 3D coerente
 
 Se algo não estiver claro, diga "não identificado" em vez de inventar.` },
             plantaRef.textPart,
@@ -159,9 +165,24 @@ Se algo não estiver claro, diga "não identificado" em vez de inventar.` },
     if (text) console.log(`[PLANTA] Resumo estrutural gerado: ${text.substring(0, 220)}...`);
     return text;
   } catch (e) {
-    console.error("[PLANTA] Falha ao analisar planta:", e.message);
+    console.error("[PLANTA] Falha ao analisar planta:", getErrorMessage(e));
     return "";
   }
+}
+
+function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?: string) {
+  if (!url || !label || urls.includes(url)) return;
+  urls.push(url);
+  labels.push(label);
+}
+
+function extractMeasurementLines(plantaResumo = ""): string {
+  return plantaResumo
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => /\d/.test(line))
+    .join("\n");
 }
 
 // ==================== VERTEX AI (FALLBACK) ====================
@@ -220,7 +241,7 @@ async function generateImageVertex(accessToken: string, prompt: string): Promise
       console.log("[VERTEX] ✓ Imagem gerada por Imagen 3.0");
       return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
     }
-  } catch (e) { console.error("[VERTEX] Imagen3 erro:", e.message); }
+  } catch (e) { console.error("[VERTEX] Imagen3 erro:", getErrorMessage(e)); }
   return null;
 }
 
@@ -238,12 +259,14 @@ async function uploadBase64Image(sb: any, projectId: string, key: string, base64
 // ==================== PROMPTS COM CONSTÂNCIA ====================
 
 function promptExterno(nome: string, cidade: string, obs: string, scene: string, plantaResumo = ""): string {
+  const medidas = extractMeasurementLines(plantaResumo);
   return `Crie uma renderização 3D FOTORREALISTA de alta qualidade de um supermercado brasileiro de bairro.
 
 PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
 
 ${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA/TERRENO (OBRIGATÓRIO RESPEITAR):\n${plantaResumo}\n` : ""}
+${medidas ? `MEDIDAS/COTAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR SEM ALTERAR):\n${medidas}\n` : ""}
 
 REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
 1. A LOGO fornecida define TUDO: nome do mercado no letreiro, paleta de cores da fachada, identidade visual completa.
@@ -251,15 +274,16 @@ REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
    Você deve CONVERTER a planta em um edifício 3D construído e reproduzir FIELMENTE:
    - O footprint exato do prédio (retangular, em L, trapézio, recuos, encaixes, etc)
    - A posição da entrada principal
-   - As dimensões e proporções reais
+    - As dimensões, cotas e proporções reais extraídas da planta
    - A frente, lateral, fundos e orientação do edifício no lote
    - O estacionamento, doca/carga e áreas externas se indicados na planta
    - A orientação do edifício
     A planta baixa NÃO é decorativa — ela é o MAPA ARQUITETÔNICO da volumetria e implantação reais do mercado.
 3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local.
-4. Gere a cena como se um arquiteto tivesse usado a planta para modelar o mercado em 3D. O resultado deve parecer um prédio real CONSTRUÍDO a partir da planta, nunca uma colagem ou interpretação livre.
+4. Se houver medidas numéricas na planta, trate essas medidas como RESTRIÇÃO ARQUITETÔNICA VINCULANTE. Não altere escalas, quantidades, vãos, recuos ou proporções.
+5. Gere a cena como se um arquiteto tivesse usado a planta para modelar o mercado em 3D. O resultado deve parecer um prédio real CONSTRUÍDO a partir da planta, nunca uma colagem ou interpretação livre.
 
-PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO desenhe linhas de blueprint, cotas, legendas ou marcações técnicas. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa.
+PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO desenhe linhas de blueprint, cotas, legendas ou marcações técnicas. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa. NÃO ignore medidas numéricas quando existirem.
 
 ESTILO: Fotorrealismo extremo. Qualidade de foto profissional de arquitetura. Iluminação natural.
 
@@ -267,12 +291,14 @@ CENA: ${scene}`;
 }
 
 function promptInterno(nome: string, cidade: string, obs: string, scene: string, plantaResumo = ""): string {
+  const medidas = extractMeasurementLines(plantaResumo);
   return `Crie uma renderização 3D FOTORREALISTA de alta qualidade do INTERIOR de um supermercado brasileiro de bairro.
 
 PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
 
 ${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA/TERRENO (OBRIGATÓRIO RESPEITAR):\n${plantaResumo}\n` : ""}
+${medidas ? `MEDIDAS/COTAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR SEM ALTERAR):\n${medidas}\n` : ""}
 
 REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
 1. A LOGO fornecida define: placas internas, sinalização de seções, cores das gôndolas e comunicação visual.
@@ -283,12 +309,14 @@ REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
    - A disposição das gôndolas e ilhas conforme o layout da planta
    - As áreas de serviço (depósito, câmara fria) nas posições da planta
    - O sentido da entrada até os fundos conforme a organização espacial da planta
+   - As medidas, módulos e proporções dos espaços quando existirem cotas na planta
     A planta baixa define EXATAMENTE onde cada coisa deve estar. NÃO invente posições e NÃO trate a planta como imagem decorativa.
-3. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
-4. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
-5. O interior deve parecer a materialização 3D do layout visto de cima na planta, mantendo proporções, fluxo e zoneamento.
+3. Se houver medidas numéricas na planta, trate essas medidas como RESTRIÇÃO ARQUITETÔNICA VINCULANTE. Não altere escalas, vãos, distâncias entre gôndolas ou largura dos corredores.
+4. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
+5. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
+6. O interior deve parecer a materialização 3D do layout visto de cima na planta, mantendo proporções, fluxo e zoneamento.
 
-PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mostre a planta baixa desenhada na cena. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola.
+PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mostre a planta baixa desenhada na cena. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola. NÃO ignore medidas numéricas quando existirem.
 
 ESTILO: Fotorrealismo extremo. Iluminação comercial fluorescente branca. Piso cerâmico claro.
 
@@ -322,24 +350,22 @@ const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url
 
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
   const logo = refs.logo as string | undefined;
-  const planta = refs.planta as string | undefined;
   const tasks: SceneTask[] = [];
 
   const mkRefs = (type: string, extra?: string): { urls: string[]; labels: string[] } => {
     const urls: string[] = [];
     const labels: string[] = [];
-    if (logo) {
-      urls.push(logo);
-      labels.push("LOGO DO MERCADO — use estas cores, este nome e este símbolo em TODA a imagem");
-    }
-    if (extra) {
-      urls.push(extra);
-      labels.push("REFERÊNCIA VISUAL ADICIONAL — use como guia de estilo para esta cena específica");
-    }
+    pushMandatoryRef(urls, labels, logo, "LOGO DO MERCADO — use estas cores, este nome e este símbolo em TODA a imagem");
+    pushMandatoryRef(urls, labels, extra, "REFERÊNCIA VISUAL ADICIONAL — use como guia de estilo para esta cena específica");
     return { urls, labels };
   };
 
   const fachadaGerada = refs.fachada_gerada as string | undefined;
+  const fachadaRef = refs.fachada_ref as string | undefined;
+  const internoRef = refs.interno_ref as string | undefined;
+  const corredorRef = refs.corredor_ref as string | undefined;
+  const caixaRef = refs.caixa_ref as string | undefined;
+  const vistaSuperiorRef = refs.vista_superior_ref as string | undefined;
 
   const fixed = [
     { key: "img_a_url", name: "Fachada", type: "externo", ref: "fachada_ref", scene: "Fachada frontal completa do supermercado. Vista frontal centralizada. O LETREIRO deve conter EXATAMENTE o nome e cores da LOGO. Estacionamento conforme a PLANTA BAIXA. Vegetação típica de " + cidade + ". Calçada brasileira." },
@@ -356,10 +382,17 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
 
-    // CONSTÂNCIA: injeta a FACHADA já gerada como referência absoluta nas cenas que precisam bater com o exterior
-    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_e_url")) {
-      urls.push(fachadaGerada);
-      labels.push("FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
+    pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais, paisagismo externo e linguagem arquitetônica sempre que compatível com a planta baixa.");
+    if (s.type === "interno") {
+      pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — preserve linguagem visual interna, materiais, forro, iluminação e acabamento sem quebrar o layout da planta.");
+      pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — preserve padrão de circulação, ritmo visual e linguagem de gôndolas.");
+      pushMandatoryRef(urls, labels, caixaRef, "REFERÊNCIA DE CAIXAS ENVIADA — preserve padrão visual da entrada/caixas, sem contrariar a posição definida na planta.");
+    }
+    if (s.key === "img_e_url") {
+      pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea, implantação e ambiente externo sem contrariar a planta.");
+    }
+    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
+      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
     }
 
     let prompt: string;
@@ -376,6 +409,11 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       ? "REFERÊNCIA EXATA DA GÔNDOLA — copie FIELMENTE este modelo de gôndola, estilo de prateleira, disposição e tipo de produtos"
       : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
+    pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais, iluminação e identidade visual do interior.");
+    pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas e circulação.");
+    if (fachadaGerada) {
+      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — a identidade visual e as cores precisam continuar iguais também nesta seção.");
+    }
     // Override the generic label for gondola ref with specific one
     if (c.refImage && gondolaRefLabel && labels.length > 0) {
       labels[labels.length - 1] = gondolaRefLabel;
@@ -414,7 +452,7 @@ async function invokeNextStage(payload: Record<string, unknown>) {
     if (!res.ok) console.error("Self-invoke falhou:", res.status, await res.text());
     else await res.text();
   } catch (e) {
-    console.error("Self-invoke erro:", e.message);
+    console.error("Self-invoke erro:", getErrorMessage(e));
   }
 }
 
@@ -495,7 +533,7 @@ Deno.serve(async (req) => {
             try {
               const vToken = await getVertexAccessToken();
               base64 = await generateImageVertex(vToken, current.prompt);
-            } catch (e) { console.error("[FALLBACK] Vertex falhou:", e.message); }
+            } catch (e) { console.error("[FALLBACK] Vertex falhou:", getErrorMessage(e)); }
           }
 
           if (base64) {
@@ -508,7 +546,7 @@ Deno.serve(async (req) => {
             console.error(`✗ ${current.sceneName} — todos os provedores falharam`);
           }
         } catch (err) {
-          console.error(`✗ ${current.sceneName}:`, err.message);
+          console.error(`✗ ${current.sceneName}:`, getErrorMessage(err));
         }
       }
 
@@ -536,7 +574,8 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ error: "Estágio desconhecido" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
-    console.error("Erro fatal:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const errorMessage = getErrorMessage(err);
+    console.error("Erro fatal:", errorMessage);
+    return new Response(JSON.stringify({ error: errorMessage }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
