@@ -31,6 +31,10 @@ async function urlToBase64Part(url: string, label: string, maxBytes = 4_500_000)
   }
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // ==================== GEMINI (PRINCIPAL) ====================
 
 async function generateImageGemini(apiKey: string, prompt: string, refUrls: string[], refLabels: string[]): Promise<string | null> {
@@ -90,7 +94,7 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
       }
       console.warn(`[GEMINI] ${model} sem dados de imagem na resposta`);
     } catch (e) {
-      console.error(`[GEMINI] ${model} erro:`, e.message);
+      console.error(`[GEMINI] ${model} erro:`, getErrorMessage(e));
     }
   }
 
@@ -161,7 +165,7 @@ Se algo não estiver claro, diga "não identificado" em vez de inventar.` },
     if (text) console.log(`[PLANTA] Resumo estrutural gerado: ${text.substring(0, 220)}...`);
     return text;
   } catch (e) {
-    console.error("[PLANTA] Falha ao analisar planta:", e.message);
+    console.error("[PLANTA] Falha ao analisar planta:", getErrorMessage(e));
     return "";
   }
 }
@@ -237,7 +241,7 @@ async function generateImageVertex(accessToken: string, prompt: string): Promise
       console.log("[VERTEX] ✓ Imagem gerada por Imagen 3.0");
       return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
     }
-  } catch (e) { console.error("[VERTEX] Imagen3 erro:", e.message); }
+  } catch (e) { console.error("[VERTEX] Imagen3 erro:", getErrorMessage(e)); }
   return null;
 }
 
@@ -448,7 +452,7 @@ async function invokeNextStage(payload: Record<string, unknown>) {
     if (!res.ok) console.error("Self-invoke falhou:", res.status, await res.text());
     else await res.text();
   } catch (e) {
-    console.error("Self-invoke erro:", e.message);
+    console.error("Self-invoke erro:", getErrorMessage(e));
   }
 }
 
@@ -529,7 +533,7 @@ Deno.serve(async (req) => {
             try {
               const vToken = await getVertexAccessToken();
               base64 = await generateImageVertex(vToken, current.prompt);
-            } catch (e) { console.error("[FALLBACK] Vertex falhou:", e.message); }
+            } catch (e) { console.error("[FALLBACK] Vertex falhou:", getErrorMessage(e)); }
           }
 
           if (base64) {
@@ -542,7 +546,7 @@ Deno.serve(async (req) => {
             console.error(`✗ ${current.sceneName} — todos os provedores falharam`);
           }
         } catch (err) {
-          console.error(`✗ ${current.sceneName}:`, err.message);
+          console.error(`✗ ${current.sceneName}:`, getErrorMessage(err));
         }
       }
 
@@ -570,7 +574,8 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({ error: "Estágio desconhecido" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (err) {
-    console.error("Erro fatal:", err.message);
-    return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const errorMessage = getErrorMessage(err);
+    console.error("Erro fatal:", errorMessage);
+    return new Response(JSON.stringify({ error: errorMessage }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
