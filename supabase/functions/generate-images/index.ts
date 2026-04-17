@@ -255,12 +255,14 @@ async function uploadBase64Image(sb: any, projectId: string, key: string, base64
 // ==================== PROMPTS COM CONSTÂNCIA ====================
 
 function promptExterno(nome: string, cidade: string, obs: string, scene: string, plantaResumo = ""): string {
+  const medidas = extractMeasurementLines(plantaResumo);
   return `Crie uma renderização 3D FOTORREALISTA de alta qualidade de um supermercado brasileiro de bairro.
 
 PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
 
 ${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA/TERRENO (OBRIGATÓRIO RESPEITAR):\n${plantaResumo}\n` : ""}
+${medidas ? `MEDIDAS/COTAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR SEM ALTERAR):\n${medidas}\n` : ""}
 
 REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
 1. A LOGO fornecida define TUDO: nome do mercado no letreiro, paleta de cores da fachada, identidade visual completa.
@@ -268,15 +270,16 @@ REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
    Você deve CONVERTER a planta em um edifício 3D construído e reproduzir FIELMENTE:
    - O footprint exato do prédio (retangular, em L, trapézio, recuos, encaixes, etc)
    - A posição da entrada principal
-   - As dimensões e proporções reais
+    - As dimensões, cotas e proporções reais extraídas da planta
    - A frente, lateral, fundos e orientação do edifício no lote
    - O estacionamento, doca/carga e áreas externas se indicados na planta
    - A orientação do edifício
     A planta baixa NÃO é decorativa — ela é o MAPA ARQUITETÔNICO da volumetria e implantação reais do mercado.
 3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local.
-4. Gere a cena como se um arquiteto tivesse usado a planta para modelar o mercado em 3D. O resultado deve parecer um prédio real CONSTRUÍDO a partir da planta, nunca uma colagem ou interpretação livre.
+4. Se houver medidas numéricas na planta, trate essas medidas como RESTRIÇÃO ARQUITETÔNICA VINCULANTE. Não altere escalas, quantidades, vãos, recuos ou proporções.
+5. Gere a cena como se um arquiteto tivesse usado a planta para modelar o mercado em 3D. O resultado deve parecer um prédio real CONSTRUÍDO a partir da planta, nunca uma colagem ou interpretação livre.
 
-PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO desenhe linhas de blueprint, cotas, legendas ou marcações técnicas. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa.
+PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO desenhe linhas de blueprint, cotas, legendas ou marcações técnicas. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa. NÃO ignore medidas numéricas quando existirem.
 
 ESTILO: Fotorrealismo extremo. Qualidade de foto profissional de arquitetura. Iluminação natural.
 
@@ -284,12 +287,14 @@ CENA: ${scene}`;
 }
 
 function promptInterno(nome: string, cidade: string, obs: string, scene: string, plantaResumo = ""): string {
+  const medidas = extractMeasurementLines(plantaResumo);
   return `Crie uma renderização 3D FOTORREALISTA de alta qualidade do INTERIOR de um supermercado brasileiro de bairro.
 
 PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
 
 ${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA/TERRENO (OBRIGATÓRIO RESPEITAR):\n${plantaResumo}\n` : ""}
+${medidas ? `MEDIDAS/COTAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR SEM ALTERAR):\n${medidas}\n` : ""}
 
 REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
 1. A LOGO fornecida define: placas internas, sinalização de seções, cores das gôndolas e comunicação visual.
@@ -300,12 +305,14 @@ REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
    - A disposição das gôndolas e ilhas conforme o layout da planta
    - As áreas de serviço (depósito, câmara fria) nas posições da planta
    - O sentido da entrada até os fundos conforme a organização espacial da planta
+   - As medidas, módulos e proporções dos espaços quando existirem cotas na planta
     A planta baixa define EXATAMENTE onde cada coisa deve estar. NÃO invente posições e NÃO trate a planta como imagem decorativa.
-3. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
-4. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
-5. O interior deve parecer a materialização 3D do layout visto de cima na planta, mantendo proporções, fluxo e zoneamento.
+3. Se houver medidas numéricas na planta, trate essas medidas como RESTRIÇÃO ARQUITETÔNICA VINCULANTE. Não altere escalas, vãos, distâncias entre gôndolas ou largura dos corredores.
+4. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
+5. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
+6. O interior deve parecer a materialização 3D do layout visto de cima na planta, mantendo proporções, fluxo e zoneamento.
 
-PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mostre a planta baixa desenhada na cena. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola.
+PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mostre a planta baixa desenhada na cena. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola. NÃO ignore medidas numéricas quando existirem.
 
 ESTILO: Fotorrealismo extremo. Iluminação comercial fluorescente branca. Piso cerâmico claro.
 
