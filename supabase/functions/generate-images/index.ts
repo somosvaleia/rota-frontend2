@@ -123,14 +123,15 @@ IMPORTANTE:
 - Ela representa terreno, contorno, implantação, medidas, acessos e layout.
 - NÃO trate como textura, fachada pronta ou referência estética.
 - O objetivo é extrair RESTRIÇÕES ESPACIAIS REAIS para construir um supermercado coerente em perspectiva 3D.
+- A imagem final JAMAIS pode mostrar linhas técnicas, cotas, textos da planta ou aparência de blueprint sobreposta.
 
 Responda em texto curto e objetivo, em português, com estes tópicos:
-1. FORMATO/FOOTPRINT do prédio ou terreno
-2. ORIENTAÇÃO e volumetria principal
-3. POSIÇÃO PROVÁVEL da entrada principal
-4. POSIÇÃO de estacionamento/carga/apoio, se houver indícios
-5. SETORIZAÇÃO INTERNA provável (caixas, corredores, fundos, apoio)
-6. RESTRIÇÕES OBRIGATÓRIAS que a imagem final deve respeitar
+1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio ou terreno
+2. FRENTE DO MERCADO — lado que mais parece ser a fachada/entrada principal
+3. ACESSOS E APOIOS — estacionamento, doca, carga, recuos, circulação externa
+4. LAYOUT INTERNO OBRIGATÓRIO — entrada, caixas, corredores, setores e fundos
+5. ELEMENTOS QUE NÃO PODEM SER INVENTADOS — diga claramente o que precisa ser preservado
+6. INSTRUÇÃO FINAL DE CONVERSÃO — descreva em uma frase como transformar a vista superior em render 3D coerente
 
 Se algo não estiver claro, diga "não identificado" em vez de inventar.` },
             plantaRef.textPart,
@@ -254,10 +255,11 @@ REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
    - A frente, lateral, fundos e orientação do edifício no lote
    - O estacionamento, doca/carga e áreas externas se indicados na planta
    - A orientação do edifício
-   A planta baixa NÃO é decorativa — ela é o MAPA ARQUITETÔNICO da volumetria e implantação reais do mercado.
+    A planta baixa NÃO é decorativa — ela é o MAPA ARQUITETÔNICO da volumetria e implantação reais do mercado.
 3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local.
+4. Gere a cena como se um arquiteto tivesse usado a planta para modelar o mercado em 3D. O resultado deve parecer um prédio real CONSTRUÍDO a partir da planta, nunca uma colagem ou interpretação livre.
 
-PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa.
+PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO desenhe linhas de blueprint, cotas, legendas ou marcações técnicas. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa.
 
 ESTILO: Fotorrealismo extremo. Qualidade de foto profissional de arquitetura. Iluminação natural.
 
@@ -281,11 +283,12 @@ REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
    - A disposição das gôndolas e ilhas conforme o layout da planta
    - As áreas de serviço (depósito, câmara fria) nas posições da planta
    - O sentido da entrada até os fundos conforme a organização espacial da planta
-   A planta baixa define EXATAMENTE onde cada coisa deve estar. NÃO invente posições e NÃO trate a planta como imagem decorativa.
+    A planta baixa define EXATAMENTE onde cada coisa deve estar. NÃO invente posições e NÃO trate a planta como imagem decorativa.
 3. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
 4. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
+5. O interior deve parecer a materialização 3D do layout visto de cima na planta, mantendo proporções, fluxo e zoneamento.
 
-PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola.
+PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mostre a planta baixa desenhada na cena. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola.
 
 ESTILO: Fotorrealismo extremo. Iluminação comercial fluorescente branca. Piso cerâmico claro.
 
@@ -328,10 +331,6 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     if (logo) {
       urls.push(logo);
       labels.push("LOGO DO MERCADO — use estas cores, este nome e este símbolo em TODA a imagem");
-    }
-    if (planta && type !== "produto") {
-      urls.push(planta);
-      labels.push("PLANTA BAIXA / FOTO SATELITAL DO TERRENO — interprete como VISTA SUPERIOR do lote e do layout. Use para extrair footprint, proporções, entrada, orientação, estacionamento e setorização. NÃO copie a imagem literalmente na cena final.");
     }
     if (extra) {
       urls.push(extra);
@@ -376,7 +375,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
 ${c.refImage ? "IMPORTANTE: Uma imagem de referência da gôndola foi fornecida. Você DEVE reproduzir FIELMENTE o mesmo estilo, modelo e disposição da gôndola mostrada na referência." : ""}
 Produtos brasileiros REAIS de marcas conhecidas adequados para a seção "${c.name}".
 Placa de sinalização da seção "${c.name}" nas cores da LOGO.
-A posição desta gôndola no mercado deve seguir o layout da PLANTA BAIXA.
+A posição desta gôndola no mercado deve seguir o layout da PLANTA BAIXA e o zoneamento descrito no resumo estrutural.
 ${c.observacao || ""}`;
     tasks.push({
       imgKey: GONDOLA_KEYS[i],
