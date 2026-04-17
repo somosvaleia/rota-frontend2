@@ -48,7 +48,7 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
   }
 
   if (loadedRefs > 0) {
-    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS. Você DEVE copiar fielmente as cores, formas, proporções e identidade visual dessas referências na imagem gerada. NÃO invente elementos que não estejam nas referências.\n\n${prompt}` });
+    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS E VINCULANTES. Cada etiqueta anterior define o papel exato de cada referência. Você DEVE preservar fielmente arquitetura, paisagismo, materiais, volumetria, medidas proporcionais, posição da entrada, tipologia de gôndolas e identidade visual. Todas as cenas precisam representar O MESMO PROJETO REAL, sem reinterpretar aleatoriamente entre imagens. NÃO invente elementos fora das referências e NÃO contradiga a planta baixa resumida no prompt.\n\n${prompt}` });
   } else {
     parts.push({ text: prompt });
   }
@@ -70,7 +70,7 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
           contents: [{ role: "user", parts }],
           generationConfig: {
             responseModalities: ["IMAGE", "TEXT"],
-            temperature: 0.2,
+            temperature: 0.1,
           },
         }),
       });
@@ -127,11 +127,13 @@ IMPORTANTE:
 
 Responda em texto curto e objetivo, em português, com estes tópicos:
 1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio ou terreno
-2. FRENTE DO MERCADO — lado que mais parece ser a fachada/entrada principal
-3. ACESSOS E APOIOS — estacionamento, doca, carga, recuos, circulação externa
-4. LAYOUT INTERNO OBRIGATÓRIO — entrada, caixas, corredores, setores e fundos
-5. ELEMENTOS QUE NÃO PODEM SER INVENTADOS — diga claramente o que precisa ser preservado
-6. INSTRUÇÃO FINAL DE CONVERSÃO — descreva em uma frase como transformar a vista superior em render 3D coerente
+2. MEDIDAS E PROPORÇÕES OBRIGATÓRIAS — liste TODAS as medidas, cotas, larguras, comprimentos, módulos, proporções e quantidades visíveis na planta; se houver números, copie-os explicitamente
+3. FRENTE DO MERCADO — lado que mais parece ser a fachada/entrada principal
+4. ACESSOS E APOIOS — estacionamento, doca, carga, recuos, circulação externa
+5. LAYOUT INTERNO OBRIGATÓRIO — entrada, portas, caixas, corredores, setores, fundos e fluxo
+6. MAPA DE CONSTÂNCIA — o que precisa permanecer igual em fachada, entrada, corredores, vista superior e gôndolas para representar o mesmo projeto
+7. ELEMENTOS QUE NÃO PODEM SER INVENTADOS — diga claramente o que precisa ser preservado
+8. INSTRUÇÃO FINAL DE CONVERSÃO — descreva em uma frase como transformar a vista superior em render 3D coerente
 
 Se algo não estiver claro, diga "não identificado" em vez de inventar.` },
             plantaRef.textPart,
@@ -162,6 +164,21 @@ Se algo não estiver claro, diga "não identificado" em vez de inventar.` },
     console.error("[PLANTA] Falha ao analisar planta:", e.message);
     return "";
   }
+}
+
+function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?: string) {
+  if (!url || !label || urls.includes(url)) return;
+  urls.push(url);
+  labels.push(label);
+}
+
+function extractMeasurementLines(plantaResumo = ""): string {
+  return plantaResumo
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => /\d/.test(line))
+    .join("\n");
 }
 
 // ==================== VERTEX AI (FALLBACK) ====================
