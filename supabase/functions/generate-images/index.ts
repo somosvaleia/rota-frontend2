@@ -361,6 +361,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   };
 
   const fachadaGerada = refs.fachada_gerada as string | undefined;
+  const entradaGerada = refs.entrada_gerada as string | undefined;
+  const corredoresGerada = refs.corredores_gerada as string | undefined;
+  const interiorGerado = refs.interior_gerado as string | undefined;
   const fachadaRef = refs.fachada_ref as string | undefined;
   const internoRef = refs.interno_ref as string | undefined;
   const corredorRef = refs.corredor_ref as string | undefined;
@@ -394,6 +397,15 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
       pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
     }
+    if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
+      pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA DESTE MERCADO — continue o MESMO projeto vindo da fachada. Preserve posição da porta principal, transição fachada-interior, materiais, caixas e fluxo inicial exatamente como já foram definidos.");
+    }
+    if (corredoresGerada && (s.key === "img_d_url" || s.key === "img_e_url")) {
+      pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS DESTE MERCADO — use como continuidade obrigatória do layout interno. Preserve largura dos corredores, ritmo das gôndolas, setorização e profundidade espacial conforme a planta e as cenas anteriores.");
+    }
+    if (interiorGerado && s.key === "img_e_url") {
+      pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR/FUNDOS JÁ GERADOS DESTE MERCADO — a vista aérea deve representar o MESMO edifício que origina esse interior, sem alterar footprint, volumetria ou implantação da planta.");
+    }
 
     let prompt: string;
     if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo);
@@ -413,6 +425,15 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas e circulação.");
     if (fachadaGerada) {
       pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — a identidade visual e as cores precisam continuar iguais também nesta seção.");
+    }
+    if (entradaGerada) {
+      pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA DESTE MERCADO — mantenha continuidade exata entre entrada, caixas e restante do layout interno definido pela planta.");
+    }
+    if (corredoresGerada) {
+      pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS DESTE MERCADO — mantenha o mesmo padrão espacial, proporções e organização das gôndolas.");
+    }
+    if (interiorGerado) {
+      pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR/FUNDOS JÁ GERADOS DESTE MERCADO — preserve materiais, profundidade e coerência do mesmo prédio já construído a partir da planta.");
     }
     // Override the generic label for gondola ref with specific one
     if (c.refImage && gondolaRefLabel && labels.length > 0) {
