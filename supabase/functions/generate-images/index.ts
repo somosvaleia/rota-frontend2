@@ -346,24 +346,22 @@ const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url
 
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
   const logo = refs.logo as string | undefined;
-  const planta = refs.planta as string | undefined;
   const tasks: SceneTask[] = [];
 
   const mkRefs = (type: string, extra?: string): { urls: string[]; labels: string[] } => {
     const urls: string[] = [];
     const labels: string[] = [];
-    if (logo) {
-      urls.push(logo);
-      labels.push("LOGO DO MERCADO — use estas cores, este nome e este símbolo em TODA a imagem");
-    }
-    if (extra) {
-      urls.push(extra);
-      labels.push("REFERÊNCIA VISUAL ADICIONAL — use como guia de estilo para esta cena específica");
-    }
+    pushMandatoryRef(urls, labels, logo, "LOGO DO MERCADO — use estas cores, este nome e este símbolo em TODA a imagem");
+    pushMandatoryRef(urls, labels, extra, "REFERÊNCIA VISUAL ADICIONAL — use como guia de estilo para esta cena específica");
     return { urls, labels };
   };
 
   const fachadaGerada = refs.fachada_gerada as string | undefined;
+  const fachadaRef = refs.fachada_ref as string | undefined;
+  const internoRef = refs.interno_ref as string | undefined;
+  const corredorRef = refs.corredor_ref as string | undefined;
+  const caixaRef = refs.caixa_ref as string | undefined;
+  const vistaSuperiorRef = refs.vista_superior_ref as string | undefined;
 
   const fixed = [
     { key: "img_a_url", name: "Fachada", type: "externo", ref: "fachada_ref", scene: "Fachada frontal completa do supermercado. Vista frontal centralizada. O LETREIRO deve conter EXATAMENTE o nome e cores da LOGO. Estacionamento conforme a PLANTA BAIXA. Vegetação típica de " + cidade + ". Calçada brasileira." },
@@ -380,10 +378,17 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
 
-    // CONSTÂNCIA: injeta a FACHADA já gerada como referência absoluta nas cenas que precisam bater com o exterior
-    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_e_url")) {
-      urls.push(fachadaGerada);
-      labels.push("FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
+    pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais, paisagismo externo e linguagem arquitetônica sempre que compatível com a planta baixa.");
+    if (s.type === "interno") {
+      pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — preserve linguagem visual interna, materiais, forro, iluminação e acabamento sem quebrar o layout da planta.");
+      pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — preserve padrão de circulação, ritmo visual e linguagem de gôndolas.");
+      pushMandatoryRef(urls, labels, caixaRef, "REFERÊNCIA DE CAIXAS ENVIADA — preserve padrão visual da entrada/caixas, sem contrariar a posição definida na planta.");
+    }
+    if (s.key === "img_e_url") {
+      pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea, implantação e ambiente externo sem contrariar a planta.");
+    }
+    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
+      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
     }
 
     let prompt: string;
@@ -400,6 +405,11 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       ? "REFERÊNCIA EXATA DA GÔNDOLA — copie FIELMENTE este modelo de gôndola, estilo de prateleira, disposição e tipo de produtos"
       : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
+    pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais, iluminação e identidade visual do interior.");
+    pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas e circulação.");
+    if (fachadaGerada) {
+      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — a identidade visual e as cores precisam continuar iguais também nesta seção.");
+    }
     // Override the generic label for gondola ref with specific one
     if (c.refImage && gondolaRefLabel && labels.length > 0) {
       labels[labels.length - 1] = gondolaRefLabel;
