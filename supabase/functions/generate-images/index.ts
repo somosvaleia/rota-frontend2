@@ -526,9 +526,10 @@ Deno.serve(async (req) => {
 
     // CONSTÂNCIA: usa a FACHADA já gerada (img_a_url) como referência obrigatória nas cenas que mostram o exterior
     const refsComFachada = { ...refs };
-    if (project.img_a_url) {
-      refsComFachada.fachada_gerada = project.img_a_url;
-    }
+    if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
+    if (project.img_b_url) refsComFachada.entrada_gerada = project.img_b_url;
+    if (project.img_c_url) refsComFachada.corredores_gerada = project.img_c_url;
+    if (project.img_d_url) refsComFachada.interior_gerado = project.img_d_url;
     const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo);
 
     // Marcar como processando no início
