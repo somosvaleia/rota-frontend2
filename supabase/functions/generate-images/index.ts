@@ -455,7 +455,13 @@ Deno.serve(async (req) => {
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
     const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(apiKey, refs.planta, nome, cidadeVal);
-    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refs, plantaResumo);
+
+    // CONSTÂNCIA: usa a FACHADA já gerada (img_a_url) como referência obrigatória nas cenas que mostram o exterior
+    const refsComFachada = { ...refs };
+    if (project.img_a_url) {
+      refsComFachada.fachada_gerada = project.img_a_url;
+    }
+    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo);
 
     // Marcar como processando no início
     if (stage === "start") {
