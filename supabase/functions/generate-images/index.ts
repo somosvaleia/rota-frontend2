@@ -339,12 +339,14 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     return { urls, labels };
   };
 
+  const fachadaGerada = refs.fachada_gerada as string | undefined;
+
   const fixed = [
     { key: "img_a_url", name: "Fachada", type: "externo", ref: "fachada_ref", scene: "Fachada frontal completa do supermercado. Vista frontal centralizada. O LETREIRO deve conter EXATAMENTE o nome e cores da LOGO. Estacionamento conforme a PLANTA BAIXA. Vegetação típica de " + cidade + ". Calçada brasileira." },
-    { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área interna logo após a ENTRADA PRINCIPAL do supermercado, com a frente de caixas registradoras visível. OBRIGATÓRIO: mostrar com clareza as PORTAS DE ENTRADA (portas automáticas de vidro duplas, típicas de supermercado brasileiro, com molduras de alumínio e adesivos/sinalização) ao fundo ou na lateral, exatamente na posição da entrada definida na PLANTA BAIXA. As portas devem estar visíveis e realistas, deixando ver a luz/exterior. Quantidade de checkouts conforme PLANTA BAIXA, alinhados próximos à entrada. Tapete de entrada, catracas/balcão de informação se aplicável. Sinalização com cores da LOGO. Sacolas plásticas simples com logo. Realismo fotográfico absoluto." },
+    { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área interna logo após a ENTRADA PRINCIPAL do supermercado, com a frente de caixas registradoras visível. OBRIGATÓRIO ABSOLUTO: mostrar com clareza as PORTAS DE ENTRADA (portas automáticas de vidro duplas, típicas de supermercado brasileiro, com molduras de alumínio e adesivos/sinalização) ao fundo. As portas devem estar visíveis, transparentes e ATRAVÉS DELAS deve aparecer EXATAMENTE A MESMA PAISAGEM EXTERIOR DA FACHADA JÁ GERADA (mesma calçada, mesma vegetação, mesmo estacionamento, mesma luz, mesma cidade). Posição da entrada conforme PLANTA BAIXA. Quantidade de checkouts conforme PLANTA BAIXA, alinhados próximos à entrada. Tapete de entrada, sinalização com cores da LOGO. Sacolas plásticas simples com logo. Realismo fotográfico absoluto e CONSTÂNCIA TOTAL com a fachada externa de referência." },
     { key: "img_c_url", name: "Corredores", type: "interno", ref: "corredor_ref", scene: "Corredor principal interno. Gôndolas dos dois lados com produtos brasileiros. Placas de seção nas cores da LOGO. Perspectiva central profunda." },
     { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Área dos fundos: açougue, padaria e hortifruti conforme PLANTA BAIXA. Balcões refrigerados. Comunicação visual com cores da LOGO." },
-    { key: "img_e_url", name: "Vista Superior", type: "externo", ref: "vista_superior_ref", scene: "Vista aérea (drone) do supermercado. O formato do telhado e a implantação devem seguir EXATAMENTE a PLANTA BAIXA. Entorno urbano de " + cidade + "." },
+    { key: "img_e_url", name: "Vista Superior", type: "externo", ref: "vista_superior_ref", scene: "Vista aérea (drone) do supermercado. O formato do telhado, fachada, cores, letreiro e implantação devem corresponder EXATAMENTE à FACHADA JÁ GERADA fornecida como referência (mesmas cores, mesmo letreiro, mesmo material de telhado, mesmo estacionamento, mesma vegetação). O footprint deve seguir a PLANTA BAIXA. Entorno urbano de " + cidade + "." },
     { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme de funcionário: camiseta polo SIMPLES com a LOGO bordada no peito esquerdo. Cores EXATAS da logo. Em cabide ou manequim. Fundo neutro." },
     { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES de supermercado com a LOGO impressa. Plástico branco ou na cor principal da logo. Sacola comum de mercadinho brasileiro. Fundo neutro." },
     { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame). LOGO aplicada na parte frontal. Detalhes na cor da logo. Carrinho SIMPLES e funcional. Fundo neutro." },
@@ -353,6 +355,13 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
+
+    // CONSTÂNCIA: injeta a FACHADA já gerada como referência absoluta nas cenas que precisam bater com o exterior
+    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_e_url")) {
+      urls.push(fachadaGerada);
+      labels.push("FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
+    }
+
     let prompt: string;
     if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo);
     else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo);
@@ -455,7 +464,13 @@ Deno.serve(async (req) => {
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
     const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(apiKey, refs.planta, nome, cidadeVal);
-    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refs, plantaResumo);
+
+    // CONSTÂNCIA: usa a FACHADA já gerada (img_a_url) como referência obrigatória nas cenas que mostram o exterior
+    const refsComFachada = { ...refs };
+    if (project.img_a_url) {
+      refsComFachada.fachada_gerada = project.img_a_url;
+    }
+    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo);
 
     // Marcar como processando no início
     if (stage === "start") {
