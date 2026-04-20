@@ -607,8 +607,9 @@ Deno.serve(async (req) => {
 
     // ---- Edição de imagem individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
-      const base64 = await generateImageGemini(apiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
+      let base64 = await generateImageGemini(apiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
       if (url) await sb.from("projects").update({ [image_key]: url, status: "concluido", updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ success: true, new_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
