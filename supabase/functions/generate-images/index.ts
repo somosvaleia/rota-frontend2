@@ -626,12 +626,13 @@ Deno.serve(async (req) => {
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
     const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(apiKey, refs.planta, nome, cidadeVal);
 
-    // CONSTÂNCIA: usa a FACHADA já gerada (img_a_url) como referência obrigatória nas cenas que mostram o exterior
+    // CONSTÂNCIA: usa as cenas já geradas como referência obrigatória nas próximas
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
     if (project.img_b_url) refsComFachada.entrada_gerada = project.img_b_url;
     if (project.img_c_url) refsComFachada.corredores_gerada = project.img_c_url;
     if (project.img_d_url) refsComFachada.interior_gerado = project.img_d_url;
+    if (project.img_e_url) refsComFachada.vista_superior_gerada = project.img_e_url;
     const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo);
 
     // Marcar como processando no início
