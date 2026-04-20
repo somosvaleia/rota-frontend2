@@ -438,7 +438,8 @@ interface SceneTask {
   refLabels: string[];
 }
 
-const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url","img_s_url","img_t_url"];
+const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url"];
+// img_s_url e img_t_url são reservados para as VISTAS GEOMÉTRICAS OBRIGATÓRIAS (lateral e perspectiva técnica)
 
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
   const logo = refs.logo as string | undefined;
