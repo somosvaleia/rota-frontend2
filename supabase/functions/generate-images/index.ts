@@ -52,7 +52,7 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
   }
 
   if (loadedRefs > 0) {
-    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS E VINCULANTES. Cada etiqueta anterior define o papel exato de cada referência. Você DEVE preservar fielmente arquitetura, paisagismo, materiais, volumetria, medidas proporcionais, posição da entrada, tipologia de gôndolas e identidade visual. Todas as cenas precisam representar O MESMO PROJETO REAL, sem reinterpretar aleatoriamente entre imagens. NÃO invente elementos fora das referências e NÃO contradiga a planta baixa resumida no prompt.\n\n${prompt}` });
+    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS E VINCULANTES. Cada etiqueta anterior define o papel exato de cada referência. PLANTA BAIXA, IMPLANTAÇÃO, FOTO SATELITAL, FOTO DO MERCADO EXISTENTE, MEDIDAS E ANEXOS DO CLIENTE têm prioridade MÁXIMA sobre qualquer estilização. Você DEVE preservar fielmente arquitetura, paisagismo, materiais, volumetria, medidas proporcionais, posição da entrada, tipologia de gôndolas, entorno e identidade visual. Se houver foto do mercado já existente, REFORME o mesmo mercado em vez de inventar outro prédio. Todas as cenas precisam representar O MESMO PROJETO REAL, sem reinterpretar aleatoriamente entre imagens. NÃO invente elementos fora das referências e NÃO contradiga a planta baixa resumida no prompt.\n\n${prompt}` });
   } else {
     parts.push({ text: prompt });
   }
@@ -183,6 +183,46 @@ function extractMeasurementLines(plantaResumo = ""): string {
     .filter(Boolean)
     .filter((line) => /\d/.test(line))
     .join("\n");
+}
+
+function normalizeExtraRefs(rawExtras: unknown): Array<{ label: string; url: string }> {
+  if (!Array.isArray(rawExtras)) return [];
+
+  return rawExtras
+    .filter((item): item is { label?: unknown; url?: unknown } => Boolean(item && typeof item === "object"))
+    .map((item, index) => ({
+      label: typeof item.label === "string" && item.label.trim()
+        ? item.label.trim()
+        : `Anexo ${index + 1}`,
+      url: typeof item.url === "string" ? item.url : "",
+    }))
+    .filter((item) => Boolean(item.url));
+}
+
+function pushProjectContextRefs(
+  urls: string[],
+  labels: string[],
+  refs: Record<string, any>,
+  sceneType: "externo" | "interno" | "produto",
+) {
+  if (sceneType === "produto") return;
+
+  pushMandatoryRef(
+    urls,
+    labels,
+    refs.planta as string | undefined,
+    "PLANTA BAIXA / IMPLANTAÇÃO / FOTO SATELITAL — REFERÊNCIA ESTRUTURAL MÁXIMA. O prédio, acessos, entrada, zoneamento, gôndolas, caixa, recuos, estacionamento e volumetria DEVEM nascer desta referência.",
+  );
+
+  const extras = normalizeExtraRefs(refs.extras);
+  for (const [index, extra] of extras.slice(0, 4).entries()) {
+    pushMandatoryRef(
+      urls,
+      labels,
+      extra.url,
+      `ANEXO DO CLIENTE ${index + 1} (${extra.label}) — trate como evidência REAL do mercado, terreno, fachada existente, rua, contexto externo ou layout. Preserve esses elementos e NÃO invente outro imóvel se esta imagem mostrar um mercado já existente.`,
+    );
+  }
 }
 
 // ==================== VERTEX AI (FALLBACK) ====================
