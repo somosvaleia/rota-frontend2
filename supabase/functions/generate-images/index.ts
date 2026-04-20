@@ -662,7 +662,8 @@ Deno.serve(async (req) => {
           }
 
           if (base64) {
-            const url = await uploadBase64Image(sb, project_id, current.imgKey.replace("_url", ""), base64);
+            const stamped = await applyWatermark(base64);
+            const url = await uploadBase64Image(sb, project_id, current.imgKey.replace("_url", ""), stamped);
             if (url) {
               await sb.from("projects").update({ [current.imgKey]: url, updated_at: new Date().toISOString() }).eq("id", project_id);
               console.log(`✓ ${current.sceneName} concluída`);
