@@ -215,7 +215,8 @@ Deno.serve(async (req) => {
     );
 
     const base64Data = editedBase64.replace(/^data:image\/\w+;base64,/, "");
-    const imageBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+    const rawBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+    const imageBytes = await applyWatermarkBytes(rawBytes);
     const fileName = `${project_id}/output/edited_${image_key}_${Date.now()}.png`;
 
     const { error: uploadError } = await supabase.storage
