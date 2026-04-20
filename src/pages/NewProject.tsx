@@ -138,25 +138,25 @@ const handleSubmit = async () => {
 
   return (
     <AppLayout>
-      <div className="p-8 max-w-4xl mx-auto">
+      <div className="p-4 sm:p-6 md:p-8 max-w-4xl mx-auto">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-8">
-          <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground transition-colors">
+        <div className="flex items-center gap-3 sm:gap-4 mb-6 md:mb-8">
+          <button onClick={() => navigate("/")} className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
-            <h1 className="font-display text-2xl font-bold text-foreground">Novo Projeto</h1>
-            <p className="text-sm text-muted-foreground">Preencha os dados para gerar o projeto</p>
+          <div className="min-w-0">
+            <h1 className="font-display text-xl sm:text-2xl font-bold text-foreground truncate">Novo Projeto</h1>
+            <p className="text-xs sm:text-sm text-muted-foreground">Preencha os dados para gerar o projeto</p>
           </div>
         </div>
 
         {/* Steps indicator */}
-        <div className="flex items-center gap-2 mb-10">
+        <div className="flex items-center gap-1.5 sm:gap-2 mb-6 md:mb-10">
           {steps.map((s, i) => (
             <div key={s.id} className="flex items-center gap-2 flex-1">
               <button
                 onClick={() => setStep(s.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all w-full ${
+                className={`flex items-center justify-center gap-2 px-2 sm:px-4 py-2 sm:py-2.5 rounded-lg text-xs sm:text-sm font-medium transition-all w-full ${
                   step === s.id
                     ? "bg-primary/10 text-primary glow-border"
                     : step > s.id
@@ -165,15 +165,14 @@ const handleSubmit = async () => {
                 }`}
               >
                 {step > s.id ? (
-                  <Check className="w-4 h-4" />
+                  <Check className="w-4 h-4 shrink-0" />
                 ) : (
-                  <s.icon className="w-4 h-4" />
+                  <s.icon className="w-4 h-4 shrink-0" />
                 )}
-                <span className="hidden sm:inline">{s.label}</span>
-                <span className="sm:hidden">{s.id}</span>
+                <span className="hidden md:inline truncate">{s.label}</span>
               </button>
               {i < steps.length - 1 && (
-                <div className={`h-px w-6 shrink-0 ${step > s.id ? "bg-success" : "bg-border"}`} />
+                <div className={`h-px w-2 sm:w-6 shrink-0 ${step > s.id ? "bg-success" : "bg-border"}`} />
               )}
             </div>
           ))}
@@ -189,7 +188,7 @@ const handleSubmit = async () => {
             transition={{ duration: 0.2 }}
           >
             {step === 1 && (
-              <div className="glass-card rounded-xl p-6 space-y-5">
+              <div className="glass-card rounded-xl p-4 sm:p-6 space-y-5">
                 <h2 className="font-display text-lg font-semibold">Dados do Mercado</h2>
                 <div className="space-y-4">
                   <div>
@@ -222,12 +221,12 @@ const handleSubmit = async () => {
             )}
 
             {step === 2 && (
-              <div className="glass-card rounded-xl p-6 space-y-5">
+              <div className="glass-card rounded-xl p-4 sm:p-6 space-y-5">
                 <h2 className="font-display text-lg font-semibold">Imagens de Referência</h2>
                 <p className="text-sm text-muted-foreground">
                   Envie imagens que serão usadas pela IA como base para o projeto.
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                   <ImageUpload label="Logomarca" description="Logo do mercado" value={logo} onChange={setLogo} />
                   <ImageUpload label="Planta Baixa" description="Planta do estabelecimento" value={planta} onChange={setPlanta} />
                   <ImageUpload label="Fachada Ref." description="Referência de fachada" value={fachadaRef} onChange={setFachadaRef} />
@@ -260,7 +259,7 @@ const handleSubmit = async () => {
             )}
 
             {step === 3 && (
-              <div className="glass-card rounded-xl p-6 space-y-5">
+              <div className="glass-card rounded-xl p-4 sm:p-6 space-y-5">
                 <h2 className="font-display text-lg font-semibold">Categorias e Gôndolas</h2>
                 <p className="text-sm text-muted-foreground">
                   Ative os setores e defina a quantidade de gôndolas.
@@ -269,12 +268,12 @@ const handleSubmit = async () => {
                   {categorias.map((cat) => (
                     <div
                       key={cat.id}
-                      className={`rounded-lg border p-4 transition-all ${
+                      className={`rounded-lg border p-3 sm:p-4 transition-all ${
                         cat.enabled ? "border-primary/30 bg-primary/5" : "border-border bg-secondary/30 opacity-60"
                       }`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
                           <Switch
                             checked={cat.enabled}
                             onCheckedChange={(v) => updateCategoria(cat.id, "enabled", v)}
@@ -284,13 +283,13 @@ const handleSubmit = async () => {
                               value={cat.name}
                               onChange={(e) => updateCategoria(cat.id, "name", e.target.value)}
                               placeholder="Nome da categoria..."
-                              className="text-sm h-8 w-40"
+                              className="text-sm h-8 flex-1 min-w-0"
                             />
                           ) : (
-                            <span className="font-medium text-sm">{cat.name}</span>
+                            <span className="font-medium text-sm truncate">{cat.name}</span>
                           )}
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                           {cat.enabled && (
                             <>
                               <label className="text-xs text-muted-foreground">Gôndolas:</label>
@@ -347,7 +346,7 @@ const handleSubmit = async () => {
         </AnimatePresence>
 
         {/* Navigation */}
-        <div className="flex justify-between mt-8">
+        <div className="flex justify-between gap-2 mt-6 md:mt-8">
           <Button
             variant="outline"
             onClick={() => (step === 1 ? navigate("/") : setStep(step - 1))}
