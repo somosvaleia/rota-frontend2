@@ -457,6 +457,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const entradaGerada = refs.entrada_gerada as string | undefined;
   const corredoresGerada = refs.corredores_gerada as string | undefined;
   const interiorGerado = refs.interior_gerado as string | undefined;
+  const vistaSuperiorGerada = refs.vista_superior_gerada as string | undefined;
   const fachadaRef = refs.fachada_ref as string | undefined;
   const internoRef = refs.interno_ref as string | undefined;
   const corredorRef = refs.corredor_ref as string | undefined;
