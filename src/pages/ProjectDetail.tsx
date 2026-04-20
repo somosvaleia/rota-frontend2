@@ -136,30 +136,33 @@ export default function ProjectDetail() {
 
   return (
     <AppLayout>
-      <div className="p-8 max-w-5xl mx-auto">
+      <div className="p-4 sm:p-6 md:p-8 max-w-5xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-4 mb-8"
+          className="flex flex-col sm:flex-row sm:items-start gap-4 mb-6 md:mb-8"
         >
-          <Link to="/" className="mt-1 text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-          </Link>
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
-              <h1 className="font-display text-2xl font-bold">{project.nome_mercado}</h1>
-              <StatusBadge status={project.status as any} />
+          <div className="flex items-start gap-3 sm:gap-4 flex-1 min-w-0">
+            <Link to="/" className="mt-1 text-muted-foreground hover:text-foreground transition-colors shrink-0">
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <h1 className="font-display text-xl sm:text-2xl font-bold break-words">{project.nome_mercado}</h1>
+                <StatusBadge status={project.status as any} />
+              </div>
+              <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+                {project.cidade} • Criado em {new Date(project.created_at).toLocaleDateString("pt-BR")}
+              </p>
+              {project.observacoes && (
+                <p className="text-sm text-secondary-foreground mt-2 break-words">{project.observacoes}</p>
+              )}
             </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              {project.cidade} • Criado em {new Date(project.created_at).toLocaleDateString("pt-BR")}
-            </p>
-            {project.observacoes && (
-              <p className="text-sm text-secondary-foreground mt-2">{project.observacoes}</p>
-            )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
             <Button
               variant="outline"
+              size="sm"
               className="gap-2"
               onClick={() => setShowEditDialog(true)}
             >
@@ -167,13 +170,14 @@ export default function ProjectDetail() {
               Editar
             </Button>
             {project.status === "concluido" && (
-              <Button variant="outline" className="gap-2">
+              <Button variant="outline" size="sm" className="gap-2">
                 <Download className="w-4 h-4" />
                 Exportar
               </Button>
             )}
             <Button
               variant="outline"
+              size="sm"
               className="gap-2 text-destructive hover:bg-destructive hover:text-destructive-foreground"
               onClick={() => setShowDeleteDialog(true)}
             >
@@ -185,9 +189,9 @@ export default function ProjectDetail() {
 
         {/* Images */}
         {images.length > 0 && (
-          <div className="space-y-6 mb-8">
-            <h2 className="font-display text-lg font-semibold">Imagens Geradas ({images.length})</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="space-y-4 sm:space-y-6 mb-8">
+            <h2 className="font-display text-base sm:text-lg font-semibold">Imagens Geradas ({images.length})</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
               {images.map((img, i) => (
                 <motion.div
                   key={img.key}
