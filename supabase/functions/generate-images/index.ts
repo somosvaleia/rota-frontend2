@@ -7,20 +7,28 @@ const corsHeaders = {
 };
 
 // ==================== WATERMARK ====================
+// Watermark gerada programaticamente — sem fetch externo, sem dependência de arquivo.
+// Desenha uma faixa preta translúcida com o texto "ROTA" no canto inferior direito.
 
-const WATERMARK_URL = "https://djjafjvywyvuzpkjuqjl.supabase.co/storage/v1/object/public/rota-referencias/_brand/rota-watermark.png";
 let cachedWatermark: Image | null = null;
 
 async function loadWatermark(): Promise<Image | null> {
   if (cachedWatermark) return cachedWatermark;
   try {
-    const res = await fetch(WATERMARK_URL);
-    if (!res.ok) { console.warn("[WATERMARK] fetch failed:", res.status); return null; }
-    const buf = new Uint8Array(await res.arrayBuffer());
-    cachedWatermark = await Image.decode(buf);
-    return cachedWatermark;
+    // Render usando fonte TTF padrão embutida no imagescript
+    const fontRes = await fetch("https://deno.land/x/imagescript@1.2.17/tests/fonts/Roboto-Regular.ttf");
+    if (!fontRes.ok) return null;
+    const font = new Uint8Array(await fontRes.arrayBuffer());
+    const text = await Image.renderText(font, 64, "ROTA", 0xffffffff);
+    // Adiciona padding lateral
+    const padX = 24, padY = 12;
+    const wm = new Image(text.width + padX * 2, text.height + padY * 2);
+    wm.fill(0x00000099); // preto ~60% opaco
+    wm.composite(text, padX, padY);
+    cachedWatermark = wm;
+    return wm;
   } catch (e) {
-    console.error("[WATERMARK] erro ao carregar:", e instanceof Error ? e.message : String(e));
+    console.error("[WATERMARK] erro ao gerar:", e instanceof Error ? e.message : String(e));
     return null;
   }
 }
@@ -34,8 +42,8 @@ async function applyWatermark(base64Url: string): Promise<string> {
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const img = await Image.decode(bytes);
 
-    // Watermark = ~14% da largura da imagem, no canto inferior direito com margem
-    const targetW = Math.round(img.width * 0.14);
+    // Watermark = ~16% da largura da imagem, no canto inferior direito com margem
+    const targetW = Math.round(img.width * 0.16);
     const ratio = wm.height / wm.width;
     const targetH = Math.round(targetW * ratio);
     const wmResized = wm.clone().resize(targetW, targetH);
