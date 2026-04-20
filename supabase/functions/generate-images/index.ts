@@ -52,7 +52,7 @@ async function generateImageGemini(apiKey: string, prompt: string, refUrls: stri
   }
 
   if (loadedRefs > 0) {
-    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS E VINCULANTES. Cada etiqueta anterior define o papel exato de cada referência. Você DEVE preservar fielmente arquitetura, paisagismo, materiais, volumetria, medidas proporcionais, posição da entrada, tipologia de gôndolas e identidade visual. Todas as cenas precisam representar O MESMO PROJETO REAL, sem reinterpretar aleatoriamente entre imagens. NÃO invente elementos fora das referências e NÃO contradiga a planta baixa resumida no prompt.\n\n${prompt}` });
+    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS E VINCULANTES. Cada etiqueta anterior define o papel exato de cada referência. PLANTA BAIXA, IMPLANTAÇÃO, FOTO SATELITAL, FOTO DO MERCADO EXISTENTE, MEDIDAS E ANEXOS DO CLIENTE têm prioridade MÁXIMA sobre qualquer estilização. Você DEVE preservar fielmente arquitetura, paisagismo, materiais, volumetria, medidas proporcionais, posição da entrada, tipologia de gôndolas, entorno e identidade visual. Se houver foto do mercado já existente, REFORME o mesmo mercado em vez de inventar outro prédio. Todas as cenas precisam representar O MESMO PROJETO REAL, sem reinterpretar aleatoriamente entre imagens. NÃO invente elementos fora das referências e NÃO contradiga a planta baixa resumida no prompt.\n\n${prompt}` });
   } else {
     parts.push({ text: prompt });
   }
@@ -185,6 +185,46 @@ function extractMeasurementLines(plantaResumo = ""): string {
     .join("\n");
 }
 
+function normalizeExtraRefs(rawExtras: unknown): Array<{ label: string; url: string }> {
+  if (!Array.isArray(rawExtras)) return [];
+
+  return rawExtras
+    .filter((item): item is { label?: unknown; url?: unknown } => Boolean(item && typeof item === "object"))
+    .map((item, index) => ({
+      label: typeof item.label === "string" && item.label.trim()
+        ? item.label.trim()
+        : `Anexo ${index + 1}`,
+      url: typeof item.url === "string" ? item.url : "",
+    }))
+    .filter((item) => Boolean(item.url));
+}
+
+function pushProjectContextRefs(
+  urls: string[],
+  labels: string[],
+  refs: Record<string, any>,
+  sceneType: "externo" | "interno" | "produto",
+) {
+  if (sceneType === "produto") return;
+
+  pushMandatoryRef(
+    urls,
+    labels,
+    refs.planta as string | undefined,
+    "PLANTA BAIXA / IMPLANTAÇÃO / FOTO SATELITAL — REFERÊNCIA ESTRUTURAL MÁXIMA. O prédio, acessos, entrada, zoneamento, gôndolas, caixa, recuos, estacionamento e volumetria DEVEM nascer desta referência.",
+  );
+
+  const extras = normalizeExtraRefs(refs.extras);
+  for (const [index, extra] of extras.slice(0, 4).entries()) {
+    pushMandatoryRef(
+      urls,
+      labels,
+      extra.url,
+      `ANEXO DO CLIENTE ${index + 1} (${extra.label}) — trate como evidência REAL do mercado, terreno, fachada existente, rua, contexto externo ou layout. Preserve esses elementos e NÃO invente outro imóvel se esta imagem mostrar um mercado já existente.`,
+    );
+  }
+}
+
 // ==================== VERTEX AI (FALLBACK) ====================
 
 async function getVertexAccessToken(): Promise<string> {
@@ -282,6 +322,7 @@ REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
 3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local.
 4. Se houver medidas numéricas na planta, trate essas medidas como RESTRIÇÃO ARQUITETÔNICA VINCULANTE. Não altere escalas, quantidades, vãos, recuos ou proporções.
 5. Gere a cena como se um arquiteto tivesse usado a planta para modelar o mercado em 3D. O resultado deve parecer um prédio real CONSTRUÍDO a partir da planta, nunca uma colagem ou interpretação livre.
+6. Se qualquer referência visual mostrar o mercado/terreno existente, você deve REFORMAR E EVOLUIR esse MESMO imóvel. Não crie um prédio novo, não troque formato, não mova a entrada e não mude a implantação.
 
 PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO desenhe linhas de blueprint, cotas, legendas ou marcações técnicas. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa. NÃO ignore medidas numéricas quando existirem.
 
@@ -315,6 +356,7 @@ REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
 4. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
 5. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
 6. O interior deve parecer a materialização 3D do layout visto de cima na planta, mantendo proporções, fluxo e zoneamento.
+7. Se houver fotos reais do mercado existente ou anexos do cliente, o interior deve parecer uma continuação plausível desse MESMO imóvel, preservando estrutura, posição das portas, circulação e relação com a fachada/entrada.
 
 PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mostre a planta baixa desenhada na cena. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola. NÃO ignore medidas numéricas quando existirem.
 
@@ -385,6 +427,8 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
 
+    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto");
+
     pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais, paisagismo externo e linguagem arquitetônica sempre que compatível com a planta baixa.");
     if (s.type === "interno") {
       pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — preserve linguagem visual interna, materiais, forro, iluminação e acabamento sem quebrar o layout da planta.");
@@ -421,6 +465,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       ? "REFERÊNCIA EXATA DA GÔNDOLA — copie FIELMENTE este modelo de gôndola, estilo de prateleira, disposição e tipo de produtos"
       : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
+    pushProjectContextRefs(urls, labels, refs, "interno");
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais, iluminação e identidade visual do interior.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas e circulação.");
     if (fachadaGerada) {
