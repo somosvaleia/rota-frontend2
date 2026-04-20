@@ -7,19 +7,25 @@ const corsHeaders = {
 };
 
 // ==================== WATERMARK ====================
+// Watermark gerada programaticamente: faixa preta translúcida com texto "ROTA"
 
-const WATERMARK_URL = "https://djjafjvywyvuzpkjuqjl.supabase.co/storage/v1/object/public/rota-referencias/_brand/rota-watermark.png";
 let cachedWatermark: Image | null = null;
 
 async function loadWatermark(): Promise<Image | null> {
   if (cachedWatermark) return cachedWatermark;
   try {
-    const res = await fetch(WATERMARK_URL);
-    if (!res.ok) return null;
-    const buf = new Uint8Array(await res.arrayBuffer());
-    cachedWatermark = await Image.decode(buf);
-    return cachedWatermark;
-  } catch (_e) {
+    const fontRes = await fetch("https://deno.land/x/imagescript@1.2.17/tests/fonts/Roboto-Regular.ttf");
+    if (!fontRes.ok) return null;
+    const font = new Uint8Array(await fontRes.arrayBuffer());
+    const text = await Image.renderText(font, 64, "ROTA", 0xffffffff);
+    const padX = 24, padY = 12;
+    const wm = new Image(text.width + padX * 2, text.height + padY * 2);
+    wm.fill(0x00000099);
+    wm.composite(text, padX, padY);
+    cachedWatermark = wm;
+    return wm;
+  } catch (e) {
+    console.error("[WATERMARK] erro ao gerar:", e instanceof Error ? e.message : String(e));
     return null;
   }
 }
