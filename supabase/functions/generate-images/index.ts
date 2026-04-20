@@ -491,7 +491,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     if (s.key === "img_e_url") {
       pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea, implantação e ambiente externo sem contrariar a planta.");
     }
-    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
+    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url" || s.key === "img_s_url")) {
       pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
     }
     if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
@@ -502,6 +502,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     }
     if (interiorGerado && s.key === "img_e_url") {
       pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR/FUNDOS JÁ GERADOS DESTE MERCADO — a vista aérea deve representar o MESMO edifício que origina esse interior, sem alterar footprint, volumetria ou implantação da planta.");
+    }
+    if (vistaSuperiorGerada && s.key === "img_s_url") {
+      pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR JÁ GERADA DESTE MERCADO — use como referência ABSOLUTA do footprint, telhado e implantação. A vista lateral deve corresponder EXATAMENTE ao mesmo prédio mostrado de cima, com as mesmas proporções de comprimento e largura.");
     }
 
     let prompt: string;
