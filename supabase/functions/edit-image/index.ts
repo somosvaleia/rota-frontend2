@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
       accessToken = await getAccessToken();
     } catch (authErr) {
       return new Response(
-        JSON.stringify({ error: `Authentication failed: ${authErr.message}` }),
+        JSON.stringify({ error: `Authentication failed: ${authErr instanceof Error ? authErr.message : String(authErr)}` }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -243,7 +243,7 @@ Deno.serve(async (req) => {
     );
   } catch (err) {
     return new Response(
-      JSON.stringify({ error: err.message }),
+      JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
