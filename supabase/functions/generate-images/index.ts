@@ -1,9 +1,59 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// ==================== WATERMARK ====================
+
+const WATERMARK_URL = "https://djjafjvywyvuzpkjuqjl.supabase.co/storage/v1/object/public/rota-referencias/_brand/rota-watermark.png";
+let cachedWatermark: Image | null = null;
+
+async function loadWatermark(): Promise<Image | null> {
+  if (cachedWatermark) return cachedWatermark;
+  try {
+    const res = await fetch(WATERMARK_URL);
+    if (!res.ok) { console.warn("[WATERMARK] fetch failed:", res.status); return null; }
+    const buf = new Uint8Array(await res.arrayBuffer());
+    cachedWatermark = await Image.decode(buf);
+    return cachedWatermark;
+  } catch (e) {
+    console.error("[WATERMARK] erro ao carregar:", e instanceof Error ? e.message : String(e));
+    return null;
+  }
+}
+
+async function applyWatermark(base64Url: string): Promise<string> {
+  try {
+    const wm = await loadWatermark();
+    if (!wm) return base64Url;
+
+    const b64 = base64Url.replace(/^data:image\/\w+;base64,/, "");
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const img = await Image.decode(bytes);
+
+    // Watermark = ~14% da largura da imagem, no canto inferior direito com margem
+    const targetW = Math.round(img.width * 0.14);
+    const ratio = wm.height / wm.width;
+    const targetH = Math.round(targetW * ratio);
+    const wmResized = wm.clone().resize(targetW, targetH);
+
+    const margin = Math.round(img.width * 0.025);
+    const x = img.width - targetW - margin;
+    const y = img.height - targetH - margin;
+
+    img.composite(wmResized, x, y);
+    const outBytes = await img.encode(1); // PNG
+    let bin = "";
+    for (let i = 0; i < outBytes.length; i++) bin += String.fromCharCode(outBytes[i]);
+    return `data:image/png;base64,${btoa(bin)}`;
+  } catch (e) {
+    console.error("[WATERMARK] falha ao aplicar:", e instanceof Error ? e.message : String(e));
+    return base64Url;
+  }
+}
 
 // ==================== IMAGE HELPERS ====================
 
@@ -388,7 +438,8 @@ interface SceneTask {
   refLabels: string[];
 }
 
-const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url","img_s_url","img_t_url"];
+const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url"];
+// img_s_url e img_t_url são reservados para as VISTAS GEOMÉTRICAS OBRIGATÓRIAS (lateral e perspectiva técnica)
 
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
   const logo = refs.logo as string | undefined;
@@ -406,6 +457,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const entradaGerada = refs.entrada_gerada as string | undefined;
   const corredoresGerada = refs.corredores_gerada as string | undefined;
   const interiorGerado = refs.interior_gerado as string | undefined;
+  const vistaSuperiorGerada = refs.vista_superior_gerada as string | undefined;
   const fachadaRef = refs.fachada_ref as string | undefined;
   const internoRef = refs.interno_ref as string | undefined;
   const corredorRef = refs.corredor_ref as string | undefined;
@@ -413,14 +465,15 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const vistaSuperiorRef = refs.vista_superior_ref as string | undefined;
 
   const fixed = [
-    { key: "img_a_url", name: "Fachada", type: "externo", ref: "fachada_ref", scene: "Fachada frontal completa do supermercado. Vista frontal centralizada. O LETREIRO deve conter EXATAMENTE o nome e cores da LOGO. Estacionamento conforme a PLANTA BAIXA. Vegetação típica de " + cidade + ". Calçada brasileira." },
+    { key: "img_a_url", name: "Fachada (Vista Frontal)", type: "externo", ref: "fachada_ref", scene: "VISTA GEOMÉTRICA FRONTAL OBRIGATÓRIA do supermercado. Renderização arquitetônica fotorrealista vista exatamente DE FRENTE (ângulo perpendicular à fachada principal, câmera na altura humana, sem distorção de perspectiva exagerada). Toda a fachada principal centralizada e completamente visível, do chão até o topo do telhado, das laterais à largura total. O LETREIRO deve conter EXATAMENTE o nome e cores da LOGO. Estacionamento, recuos e acessos conforme a PLANTA BAIXA. Vegetação típica de " + cidade + ". Calçada brasileira. Esta imagem serve como ELEVAÇÃO FRONTAL OFICIAL do projeto." },
     { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área interna logo após a ENTRADA PRINCIPAL do supermercado, com a frente de caixas registradoras visível. OBRIGATÓRIO ABSOLUTO: mostrar com clareza as PORTAS DE ENTRADA (portas automáticas de vidro duplas, típicas de supermercado brasileiro, com molduras de alumínio e adesivos/sinalização) ao fundo. As portas devem estar visíveis, transparentes e ATRAVÉS DELAS deve aparecer EXATAMENTE A MESMA PAISAGEM EXTERIOR DA FACHADA JÁ GERADA (mesma calçada, mesma vegetação, mesmo estacionamento, mesma luz, mesma cidade). Posição da entrada conforme PLANTA BAIXA. Quantidade de checkouts conforme PLANTA BAIXA, alinhados próximos à entrada. Tapete de entrada, sinalização com cores da LOGO. Sacolas plásticas simples com logo. Realismo fotográfico absoluto e CONSTÂNCIA TOTAL com a fachada externa de referência." },
     { key: "img_c_url", name: "Corredores", type: "interno", ref: "corredor_ref", scene: "Corredor principal interno. Gôndolas dos dois lados com produtos brasileiros. Placas de seção nas cores da LOGO. Perspectiva central profunda." },
     { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Área dos fundos: açougue, padaria e hortifruti conforme PLANTA BAIXA. Balcões refrigerados. Comunicação visual com cores da LOGO." },
-    { key: "img_e_url", name: "Vista Superior", type: "externo", ref: "vista_superior_ref", scene: "Vista aérea (drone) do supermercado. O formato do telhado, fachada, cores, letreiro e implantação devem corresponder EXATAMENTE à FACHADA JÁ GERADA fornecida como referência (mesmas cores, mesmo letreiro, mesmo material de telhado, mesmo estacionamento, mesma vegetação). O footprint deve seguir a PLANTA BAIXA. Entorno urbano de " + cidade + "." },
+    { key: "img_e_url", name: "Vista Superior (Aérea)", type: "externo", ref: "vista_superior_ref", scene: "VISTA GEOMÉTRICA SUPERIOR OBRIGATÓRIA do supermercado. Renderização aérea perpendicular (vista de drone DIRETAMENTE DE CIMA, ângulo top-down de 90°, sem inclinação), mostrando o footprint completo do prédio idêntico ao da PLANTA BAIXA. O telhado, fachada, cores, letreiro, estacionamento e implantação devem corresponder EXATAMENTE à FACHADA JÁ GERADA (mesmas cores, mesmo letreiro, mesmo material de telhado, mesmo estacionamento, mesma vegetação). Esta imagem serve como PLANTA DE COBERTURA OFICIAL do projeto. Entorno urbano de " + cidade + "." },
     { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme de funcionário: camiseta polo SIMPLES com a LOGO bordada no peito esquerdo. Cores EXATAS da logo. Em cabide ou manequim. Fundo neutro." },
     { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES de supermercado com a LOGO impressa. Plástico branco ou na cor principal da logo. Sacola comum de mercadinho brasileiro. Fundo neutro." },
     { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame). LOGO aplicada na parte frontal. Detalhes na cor da logo. Carrinho SIMPLES e funcional. Fundo neutro." },
+    { key: "img_s_url", name: "Vista Lateral", type: "externo", ref: "", scene: "VISTA GEOMÉTRICA LATERAL OBRIGATÓRIA do supermercado. Renderização arquitetônica fotorrealista vista exatamente DE LADO (ângulo perpendicular à lateral do prédio, câmera na altura humana, sem distorção de perspectiva). Toda a lateral do edifício centralizada e completamente visível, mostrando o comprimento total do prédio, alturas, recuos laterais e relação com o terreno. As cores, materiais, telhado, letreiro lateral (se houver) e identidade arquitetônica devem ser EXATAMENTE iguais à FACHADA JÁ GERADA e à VISTA SUPERIOR JÁ GERADA, representando o MESMO prédio sob outro ângulo. O comprimento e proporções devem respeitar a PLANTA BAIXA. Esta imagem serve como ELEVAÇÃO LATERAL OFICIAL do projeto." },
   ];
 
   for (const s of fixed) {
@@ -438,7 +491,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     if (s.key === "img_e_url") {
       pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea, implantação e ambiente externo sem contrariar a planta.");
     }
-    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
+    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url" || s.key === "img_s_url")) {
       pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
     }
     if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
@@ -449,6 +502,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     }
     if (interiorGerado && s.key === "img_e_url") {
       pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR/FUNDOS JÁ GERADOS DESTE MERCADO — a vista aérea deve representar o MESMO edifício que origina esse interior, sem alterar footprint, volumetria ou implantação da planta.");
+    }
+    if (vistaSuperiorGerada && s.key === "img_s_url") {
+      pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR JÁ GERADA DESTE MERCADO — use como referência ABSOLUTA do footprint, telhado e implantação. A vista lateral deve corresponder EXATAMENTE ao mesmo prédio mostrado de cima, com as mesmas proporções de comprimento e largura.");
     }
 
     let prompt: string;
@@ -551,8 +607,9 @@ Deno.serve(async (req) => {
 
     // ---- Edição de imagem individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
-      const base64 = await generateImageGemini(apiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
+      let base64 = await generateImageGemini(apiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
       if (url) await sb.from("projects").update({ [image_key]: url, status: "concluido", updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ success: true, new_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -569,12 +626,13 @@ Deno.serve(async (req) => {
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
     const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(apiKey, refs.planta, nome, cidadeVal);
 
-    // CONSTÂNCIA: usa a FACHADA já gerada (img_a_url) como referência obrigatória nas cenas que mostram o exterior
+    // CONSTÂNCIA: usa as cenas já geradas como referência obrigatória nas próximas
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
     if (project.img_b_url) refsComFachada.entrada_gerada = project.img_b_url;
     if (project.img_c_url) refsComFachada.corredores_gerada = project.img_c_url;
     if (project.img_d_url) refsComFachada.interior_gerado = project.img_d_url;
+    if (project.img_e_url) refsComFachada.vista_superior_gerada = project.img_e_url;
     const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo);
 
     // Marcar como processando no início
@@ -604,7 +662,8 @@ Deno.serve(async (req) => {
           }
 
           if (base64) {
-            const url = await uploadBase64Image(sb, project_id, current.imgKey.replace("_url", ""), base64);
+            const stamped = await applyWatermark(base64);
+            const url = await uploadBase64Image(sb, project_id, current.imgKey.replace("_url", ""), stamped);
             if (url) {
               await sb.from("projects").update({ [current.imgKey]: url, updated_at: new Date().toISOString() }).eq("id", project_id);
               console.log(`✓ ${current.sceneName} concluída`);

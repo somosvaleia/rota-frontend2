@@ -27,14 +27,15 @@ const IMAGE_KEYS = [
 const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"] as const;
 
 const IMAGE_LABELS: Record<string, string> = {
-  img_a_url: "Fachada",
+  img_a_url: "Fachada (Vista Frontal)",
   img_b_url: "Entrada e Caixas",
   img_c_url: "Corredores",
   img_d_url: "Interior / Fundo",
-  img_e_url: "Vista Superior",
+  img_e_url: "Vista Superior (Aérea)",
   img_f_url: "Farda / Uniforme",
   img_g_url: "Sacola Plástica",
   img_h_url: "Carrinho de Mercado",
+  img_s_url: "Vista Lateral",
 };
 
 const imageLabel = (key: string) => {
