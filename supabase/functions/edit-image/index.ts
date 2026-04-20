@@ -1,9 +1,48 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+
+// ==================== WATERMARK ====================
+
+const WATERMARK_URL = "https://djjafjvywyvuzpkjuqjl.supabase.co/storage/v1/object/public/rota-referencias/_brand/rota-watermark.png";
+let cachedWatermark: Image | null = null;
+
+async function loadWatermark(): Promise<Image | null> {
+  if (cachedWatermark) return cachedWatermark;
+  try {
+    const res = await fetch(WATERMARK_URL);
+    if (!res.ok) return null;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    cachedWatermark = await Image.decode(buf);
+    return cachedWatermark;
+  } catch (_e) {
+    return null;
+  }
+}
+
+async function applyWatermarkBytes(bytes: Uint8Array): Promise<Uint8Array> {
+  try {
+    const wm = await loadWatermark();
+    if (!wm) return bytes;
+    const img = await Image.decode(bytes);
+    const targetW = Math.round(img.width * 0.14);
+    const ratio = wm.height / wm.width;
+    const targetH = Math.round(targetW * ratio);
+    const wmResized = wm.clone().resize(targetW, targetH);
+    const margin = Math.round(img.width * 0.025);
+    const x = img.width - targetW - margin;
+    const y = img.height - targetH - margin;
+    img.composite(wmResized, x, y);
+    return await img.encode(1);
+  } catch (e) {
+    console.error("[WATERMARK] falha:", e instanceof Error ? e.message : String(e));
+    return bytes;
+  }
+}
 
 // ==================== VERTEX AI AUTH ====================
 
