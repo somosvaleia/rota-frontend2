@@ -6,7 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
 
 // ==================== WATERMARK ====================
 
@@ -80,10 +81,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+    const lovableKey = Deno.env.get("GEMINI_API_KEY");
     if (!lovableKey) {
       return new Response(
-        JSON.stringify({ error: "LOVABLE_API_KEY não configurada" }),
+        JSON.stringify({ error: "GEMINI_API_KEY não configurada" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -97,25 +98,32 @@ Deno.serve(async (req) => {
       );
     }
 
+    const inlineMatch = refDataUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!inlineMatch) {
+      return new Response(
+        JSON.stringify({ error: "Invalid source image data" }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const enrichedPrompt = `${prompt}\n\nMantenha o mesmo enquadramento, identidade visual e qualidade fotorrealista da imagem original. CONSTÂNCIA TOTAL com a referência fornecida.`;
 
     console.log(`[GEMINI/edit] editando ${image_key}`);
-    const aiRes = await fetch(LOVABLE_AI_URL, {
+    const url = `${GEMINI_API_BASE}/${GEMINI_IMAGE_MODEL}:generateContent?key=${lovableKey}`;
+    const aiRes = await fetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${lovableKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
-        messages: [{
+        contents: [{
           role: "user",
-          content: [
-            { type: "text", text: enrichedPrompt.substring(0, 30000) },
-            { type: "image_url", image_url: { url: refDataUrl } },
+          parts: [
+            { text: enrichedPrompt.substring(0, 30000) },
+            { inline_data: { mimeType: inlineMatch[1], data: inlineMatch[2] } },
           ],
         }],
-        modalities: ["image", "text"],
+        generationConfig: {
+          responseModalities: ["IMAGE", "TEXT"],
+        },
       }),
     });
 
@@ -128,12 +136,6 @@ Deno.serve(async (req) => {
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
-      if (aiRes.status === 402) {
-        return new Response(
-          JSON.stringify({ error: "Créditos esgotados. Adicione créditos em Settings > Workspace > Usage." }),
-          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
       return new Response(
         JSON.stringify({ error: `Gemini request failed: ${errText.substring(0, 300)}` }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -141,8 +143,17 @@ Deno.serve(async (req) => {
     }
 
     const aiData = await aiRes.json();
-    const imgUrl = aiData.choices?.[0]?.message?.images?.[0]?.image_url?.url as string | undefined;
-    if (!imgUrl || !imgUrl.startsWith("data:image")) {
+    let imgUrl: string | undefined;
+    const candParts = aiData.candidates?.[0]?.content?.parts || [];
+    for (const p of candParts) {
+      const inline = p.inline_data || p.inlineData;
+      if (inline?.data) {
+        const mimeType = inline.mime_type || inline.mimeType || "image/png";
+        imgUrl = `data:${mimeType};base64,${inline.data}`;
+        break;
+      }
+    }
+    if (!imgUrl) {
       console.error("[GEMINI/edit] resposta sem imagem:", JSON.stringify(aiData).substring(0, 300));
       return new Response(
         JSON.stringify({ error: "Gemini did not return an image" }),
