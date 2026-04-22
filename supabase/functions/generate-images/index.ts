@@ -543,7 +543,7 @@ Deno.serve(async (req) => {
               console.log(`✓ ${current.sceneName} concluída`);
             }
           } else {
-            console.error(`✗ ${current.sceneName} — OpenAI falhou`);
+            console.error(`✗ ${current.sceneName} — Gemini falhou`);
           }
         } catch (err) {
           console.error(`✗ ${current.sceneName}:`, getErrorMessage(err));
