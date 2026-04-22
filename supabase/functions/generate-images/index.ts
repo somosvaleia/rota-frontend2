@@ -512,7 +512,7 @@ Deno.serve(async (req) => {
     const cidadeVal = cidade || project.cidade || "";
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
-    const plantaResumo = floor_plan_summary || await analyzeFloorPlanOpenAI(openaiKey, refs.planta, nome, cidadeVal);
+    const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(lovableKey, refs.planta, nome, cidadeVal);
 
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
