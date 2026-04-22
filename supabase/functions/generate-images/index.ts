@@ -486,16 +486,16 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "project_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const openaiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!openaiKey) {
-      return new Response(JSON.stringify({ error: "OPENAI_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+    if (!lovableKey) {
+      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     // ---- Edição individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
-      let base64 = await generateImageOpenAI(openaiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
+      let base64 = await generateImageGemini(lovableKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
