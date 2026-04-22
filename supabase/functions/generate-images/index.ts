@@ -147,9 +147,15 @@ async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promis
   }
 }
 
-// ==================== GEMINI IMAGE GEN (Lovable AI Gateway) ====================
-// Usa google/gemini-2.5-flash-image (Nano Banana) — modelo multimodal que gera imagens
+// ==================== GEMINI IMAGE GEN (Google AI Studio API direta) ====================
+// Usa gemini-2.5-flash-image-preview — modelo multimodal que gera imagens
 // fotorrealistas mantendo CONSTÂNCIA com as imagens de referência fornecidas.
+
+function dataUrlToInlineData(dataUrl: string): { mimeType: string; data: string } | null {
+  const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) return null;
+  return { mimeType: match[1], data: match[2] };
+}
 
 async function generateImageGemini(
   apiKey: string,
@@ -161,30 +167,31 @@ async function generateImageGemini(
     ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
     : prompt;
 
-  const content: Array<Record<string, unknown>> = [{ type: "text", text: labeledPrompt.substring(0, 30000) }];
+  const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 30000) }];
   const normalizedRefs = await Promise.all(refUrls.slice(0, 6).map((url) => urlToDataUrl(url)));
 
   normalizedRefs.forEach((dataUrl, index) => {
     if (dataUrl) {
-      content.push({ type: "image_url", image_url: { url: dataUrl } });
+      const inline = dataUrlToInlineData(dataUrl);
+      if (inline) {
+        parts.push({ inline_data: inline });
+      }
     } else {
       console.warn(`[GEMINI/image] referência ignorada: ${refLabels[index] || `Ref ${index + 1}`}`);
     }
   });
 
   try {
-    console.log(`[GEMINI/image] ${content.length - 1} refs, prompt ${labeledPrompt.length} chars`);
-    const res = await fetch(LOVABLE_AI_URL, {
+    console.log(`[GEMINI/image] ${parts.length - 1} refs, prompt ${labeledPrompt.length} chars`);
+    const url = `${GEMINI_API_BASE}/${GEMINI_IMAGE_MODEL}:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash-image",
-        messages: [{ role: "user", content }],
-        modalities: ["image", "text"],
-        max_tokens: 8192,
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          responseModalities: ["IMAGE", "TEXT"],
+        },
       }),
     });
 
@@ -195,11 +202,17 @@ async function generateImageGemini(
     }
 
     const data = await res.json();
-    const msg = data.choices?.[0]?.message;
-    const imgUrl = msg?.images?.[0]?.image_url?.url;
-    if (imgUrl && typeof imgUrl === "string" && imgUrl.startsWith("data:image")) {
-      console.log("[GEMINI/image] ✓ imagem gerada");
-      return imgUrl;
+    const candidates = data.candidates || [];
+    for (const cand of candidates) {
+      const candParts = cand?.content?.parts || [];
+      for (const p of candParts) {
+        const inline = p.inline_data || p.inlineData;
+        if (inline?.data) {
+          const mimeType = inline.mime_type || inline.mimeType || "image/png";
+          console.log("[GEMINI/image] ✓ imagem gerada");
+          return `data:${mimeType};base64,${inline.data}`;
+        }
+      }
     }
     console.error(`[GEMINI/image] resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
     return null;
@@ -209,27 +222,25 @@ async function generateImageGemini(
   }
 }
 
-// ==================== ANÁLISE DE PLANTA (Gemini 2.5 Pro) ====================
+// ==================== ANÁLISE DE PLANTA (Gemini 2.5 Pro — API direta) ====================
 
 async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome = "Mercado", cidade = "Brasil"): Promise<string> {
   if (!plantaUrl) return "";
   const dataUrl = await urlToDataUrl(plantaUrl);
   if (!dataUrl) return "";
+  const inline = dataUrlToInlineData(dataUrl);
+  if (!inline) return "";
 
   try {
-    const res = await fetch(LOVABLE_AI_URL, {
+    const url = `${GEMINI_API_BASE}/${GEMINI_TEXT_MODEL}:generateContent?key=${apiKey}`;
+    const res = await fetch(url, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro",
-        messages: [{
+        contents: [{
           role: "user",
-          content: [
+          parts: [
             {
-              type: "text",
               text: `Analise esta PLANTA BAIXA / implantação / foto satelital do projeto "${nome}" em ${cidade || "Brasil"}.
 
 IMPORTANTE: a imagem é uma vista DE CIMA. Extraia restrições espaciais REAIS para construir um supermercado coerente em 3D. NÃO trate como textura ou fachada pronta.
@@ -246,10 +257,10 @@ Responda em português, curto e objetivo, com estes tópicos:
 
 Se algo não estiver claro, diga "não identificado".`,
             },
-            { type: "image_url", image_url: { url: dataUrl } },
+            { inline_data: inline },
           ],
         }],
-        max_tokens: 2048,
+        generationConfig: { maxOutputTokens: 2048 },
       }),
     });
 
@@ -259,7 +270,7 @@ Se algo não estiver claro, diga "não identificado".`,
     }
 
     const data = await res.json();
-    const text = (data.choices?.[0]?.message?.content || "").trim();
+    const text = (data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("\n") || "").trim();
     if (text) console.log(`[PLANTA] resumo: ${text.substring(0, 200)}...`);
     return text;
   } catch (e) {
