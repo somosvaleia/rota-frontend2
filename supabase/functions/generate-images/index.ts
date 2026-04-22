@@ -533,7 +533,7 @@ Deno.serve(async (req) => {
       if (current) {
         console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
         try {
-          let base64 = await generateImageOpenAI(openaiKey, current.prompt, current.refUrls, current.refLabels);
+          let base64 = await generateImageGemini(lovableKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
             const stamped = await applyWatermark(base64);
