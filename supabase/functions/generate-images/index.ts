@@ -7,28 +7,24 @@ const corsHeaders = {
 };
 
 // ==================== WATERMARK ====================
-// Watermark gerada programaticamente — sem fetch externo, sem dependência de arquivo.
-// Desenha uma faixa preta translúcida com o texto "ROTA" no canto inferior direito.
 
 let cachedWatermark: Image | null = null;
 
 async function loadWatermark(): Promise<Image | null> {
   if (cachedWatermark) return cachedWatermark;
   try {
-    // Render usando fonte TTF padrão embutida no imagescript
     const fontRes = await fetch("https://deno.land/x/imagescript@1.2.17/tests/fonts/Roboto-Regular.ttf");
     if (!fontRes.ok) return null;
     const font = new Uint8Array(await fontRes.arrayBuffer());
     const text = await Image.renderText(font, 64, "ROTA", 0xffffffff);
-    // Adiciona padding lateral
     const padX = 24, padY = 12;
     const wm = new Image(text.width + padX * 2, text.height + padY * 2);
-    wm.fill(0x00000099); // preto ~60% opaco
+    wm.fill(0x00000099);
     wm.composite(text, padX, padY);
     cachedWatermark = wm;
     return wm;
   } catch (e) {
-    console.error("[WATERMARK] erro ao gerar:", e instanceof Error ? e.message : String(e));
+    console.error("[WATERMARK] erro:", e instanceof Error ? e.message : String(e));
     return null;
   }
 }
@@ -37,196 +33,217 @@ async function applyWatermark(base64Url: string): Promise<string> {
   try {
     const wm = await loadWatermark();
     if (!wm) return base64Url;
-
     const b64 = base64Url.replace(/^data:image\/\w+;base64,/, "");
     const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const img = await Image.decode(bytes);
-
-    // Watermark = ~16% da largura da imagem, no canto inferior direito com margem
     const targetW = Math.round(img.width * 0.16);
     const ratio = wm.height / wm.width;
     const targetH = Math.round(targetW * ratio);
     const wmResized = wm.clone().resize(targetW, targetH);
-
     const margin = Math.round(img.width * 0.025);
     const x = img.width - targetW - margin;
     const y = img.height - targetH - margin;
-
     img.composite(wmResized, x, y);
-    const outBytes = await img.encode(1); // PNG
+    const outBytes = await img.encode(1);
     let bin = "";
     for (let i = 0; i < outBytes.length; i++) bin += String.fromCharCode(outBytes[i]);
     return `data:image/png;base64,${btoa(bin)}`;
   } catch (e) {
-    console.error("[WATERMARK] falha ao aplicar:", e instanceof Error ? e.message : String(e));
+    console.error("[WATERMARK] aplicar:", e instanceof Error ? e.message : String(e));
     return base64Url;
   }
 }
 
-// ==================== IMAGE HELPERS ====================
-
-async function urlToBase64Part(url: string, label: string, maxBytes = 4_500_000): Promise<{ textPart: any; imgPart: any } | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) { console.warn(`Ref fetch failed (${res.status}): ${url.substring(0, 60)}`); return null; }
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > maxBytes) {
-      console.warn(`Ref too large (${(buf.byteLength/1024).toFixed(0)}KB), skipping`);
-      return null;
-    }
-    const bytes = new Uint8Array(buf);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    const b64 = btoa(binary);
-    const ct = res.headers.get("content-type") || "image/png";
-    return {
-      textPart: { text: `[${label}]` },
-      imgPart: { inlineData: { mimeType: ct, data: b64 } },
-    };
-  } catch (e) {
-    console.error("Ref fetch error:", e);
-    return null;
-  }
-}
+// ==================== HELPERS ====================
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// ==================== GEMINI (PRINCIPAL) ====================
-
-async function generateImageGemini(apiKey: string, prompt: string, refUrls: string[], refLabels: string[]): Promise<string | null> {
-  const parts: any[] = [];
-  let loadedRefs = 0;
-
-  for (let i = 0; i < refUrls.length; i++) {
-    const label = refLabels[i] || "REFERÊNCIA";
-    const ref = await urlToBase64Part(refUrls[i], label);
-    if (ref) {
-      parts.push(ref.textPart);
-      parts.push(ref.imgPart);
-      loadedRefs++;
+async function fetchImageAsFile(url: string, filename: string, maxBytes = 4_000_000): Promise<File | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { console.warn(`Ref fetch ${res.status}: ${url.substring(0, 60)}`); return null; }
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > maxBytes) {
+      console.warn(`Ref too large (${(buf.byteLength/1024).toFixed(0)}KB), skipping`);
+      return null;
     }
+    const ct = res.headers.get("content-type") || "image/png";
+    const ext = ct.includes("jpeg") || ct.includes("jpg") ? "jpg" : ct.includes("webp") ? "webp" : "png";
+    return new File([buf], `${filename}.${ext}`, { type: ct });
+  } catch (e) {
+    console.error("Ref fetch err:", e);
+    return null;
+  }
+}
+
+async function urlToDataUrl(url: string, maxBytes = 4_000_000): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    if (buf.byteLength > maxBytes) return null;
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    const ct = res.headers.get("content-type") || "image/png";
+    return `data:${ct};base64,${btoa(bin)}`;
+  } catch { return null; }
+}
+
+// ==================== OPENAI IMAGE GEN ====================
+// Usa gpt-image-1 (modelo realista da OpenAI) com referências multimodais via /images/edits
+// quando há referências, ou /images/generations quando é apenas texto.
+
+async function generateImageOpenAI(
+  apiKey: string,
+  prompt: string,
+  refUrls: string[],
+  refLabels: string[],
+): Promise<string | null> {
+  // Monta prompt enriquecido com descrição das referências (rótulos contam contexto à IA)
+  const labeledPrompt = refUrls.length > 0
+    ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
+    : prompt;
+
+  // Carrega referências (até 4 — limite prático do gpt-image-1 edits)
+  const files: File[] = [];
+  for (let i = 0; i < Math.min(refUrls.length, 4); i++) {
+    const f = await fetchImageAsFile(refUrls[i], `ref_${i}`);
+    if (f) files.push(f);
   }
 
-  if (loadedRefs > 0) {
-    parts.push({ text: `\n⚠️ INSTRUÇÃO OBRIGATÓRIA: As ${loadedRefs} imagens acima são REFERÊNCIAS ABSOLUTAS E VINCULANTES. Cada etiqueta anterior define o papel exato de cada referência. PLANTA BAIXA, IMPLANTAÇÃO, FOTO SATELITAL, FOTO DO MERCADO EXISTENTE, MEDIDAS E ANEXOS DO CLIENTE têm prioridade MÁXIMA sobre qualquer estilização. Você DEVE preservar fielmente arquitetura, paisagismo, materiais, volumetria, medidas proporcionais, posição da entrada, tipologia de gôndolas, entorno e identidade visual. Se houver foto do mercado já existente, REFORME o mesmo mercado em vez de inventar outro prédio. Todas as cenas precisam representar O MESMO PROJETO REAL, sem reinterpretar aleatoriamente entre imagens. NÃO invente elementos fora das referências e NÃO contradiga a planta baixa resumida no prompt.\n\n${prompt}` });
-  } else {
-    parts.push({ text: prompt });
-  }
+  try {
+    if (files.length > 0) {
+      // /images/edits — aceita múltiplas imagens como referência
+      const form = new FormData();
+      form.append("model", "gpt-image-1");
+      form.append("prompt", labeledPrompt.substring(0, 32000));
+      form.append("size", "1536x1024"); // landscape ~16:10, fotorrealista
+      form.append("quality", "high");
+      form.append("n", "1");
+      for (const f of files) form.append("image[]", f);
 
-  const models = [
-    "gemini-2.5-flash-image",
-    "gemini-2.0-flash-exp-image-generation",
-  ];
-
-  for (const model of models) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    console.log(`[GEMINI] Tentando ${model} com ${loadedRefs} refs`);
-
-    try {
-      const res = await fetch(url, {
+      console.log(`[OPENAI/edits] ${files.length} refs, prompt ${labeledPrompt.length} chars`);
+      const res = await fetch("https://api.openai.com/v1/images/edits", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { Authorization: `Bearer ${apiKey}` },
+        body: form,
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[OPENAI/edits] ${res.status}: ${err.substring(0, 400)}`);
+        return null;
+      }
+
+      const data = await res.json();
+      const b64 = data.data?.[0]?.b64_json;
+      if (b64) {
+        console.log(`[OPENAI/edits] ✓ imagem gerada`);
+        return `data:image/png;base64,${b64}`;
+      }
+      return null;
+    } else {
+      // /images/generations — apenas texto
+      console.log(`[OPENAI/gen] sem refs, prompt ${labeledPrompt.length} chars`);
+      const res = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          contents: [{ role: "user", parts }],
-          generationConfig: {
-            responseModalities: ["IMAGE", "TEXT"],
-            temperature: 0.1,
-          },
+          model: "gpt-image-1",
+          prompt: labeledPrompt.substring(0, 32000),
+          size: "1536x1024",
+          quality: "high",
+          n: 1,
         }),
       });
 
       if (!res.ok) {
-        const errText = await res.text();
-        console.error(`[GEMINI] ${model} erro ${res.status}: ${errText.substring(0, 300)}`);
-        continue;
+        const err = await res.text();
+        console.error(`[OPENAI/gen] ${res.status}: ${err.substring(0, 400)}`);
+        return null;
       }
 
       const data = await res.json();
-      for (const p of (data.candidates?.[0]?.content?.parts || [])) {
-        if (p.inlineData) {
-          console.log(`[GEMINI] ✓ Imagem gerada por ${model}`);
-          return `data:${p.inlineData.mimeType};base64,${p.inlineData.data}`;
-        }
+      const b64 = data.data?.[0]?.b64_json;
+      if (b64) {
+        console.log(`[OPENAI/gen] ✓ imagem gerada`);
+        return `data:image/png;base64,${b64}`;
       }
-      console.warn(`[GEMINI] ${model} sem dados de imagem na resposta`);
-    } catch (e) {
-      console.error(`[GEMINI] ${model} erro:`, getErrorMessage(e));
+      return null;
     }
+  } catch (e) {
+    console.error("[OPENAI] erro:", getErrorMessage(e));
+    return null;
   }
-
-  return null;
 }
 
-async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome = "Mercado", cidade = "Brasil"): Promise<string> {
+// ==================== ANÁLISE DE PLANTA (GPT-4o) ====================
+
+async function analyzeFloorPlanOpenAI(apiKey: string, plantaUrl?: string, nome = "Mercado", cidade = "Brasil"): Promise<string> {
   if (!plantaUrl) return "";
-
-  const plantaRef = await urlToBase64Part(
-    plantaUrl,
-    "PLANTA BAIXA / FOTO SATELITAL / IMPLANTAÇÃO — interprete como vista superior do terreno e do formato do mercado, NÃO como imagem a ser copiada literalmente na perspectiva final",
-  );
-
-  if (!plantaRef) return "";
+  const dataUrl = await urlToDataUrl(plantaUrl);
+  if (!dataUrl) return "";
 
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        contents: [{
+        model: "gpt-4o",
+        messages: [{
           role: "user",
-          parts: [
-            { text: `Você vai analisar uma PLANTA BAIXA, implantação ou foto satelital do terreno do projeto "${nome}" em ${cidade || "Brasil"}.
+          content: [
+            {
+              type: "text",
+              text: `Analise esta PLANTA BAIXA / implantação / foto satelital do projeto "${nome}" em ${cidade || "Brasil"}.
 
-IMPORTANTE:
-- Essa imagem é uma vista DE CIMA.
-- Ela representa terreno, contorno, implantação, medidas, acessos e layout.
-- NÃO trate como textura, fachada pronta ou referência estética.
-- O objetivo é extrair RESTRIÇÕES ESPACIAIS REAIS para construir um supermercado coerente em perspectiva 3D.
-- A imagem final JAMAIS pode mostrar linhas técnicas, cotas, textos da planta ou aparência de blueprint sobreposta.
+IMPORTANTE: a imagem é uma vista DE CIMA. Extraia restrições espaciais REAIS para construir um supermercado coerente em 3D. NÃO trate como textura ou fachada pronta.
 
-Responda em texto curto e objetivo, em português, com estes tópicos:
-1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio ou terreno
-2. MEDIDAS E PROPORÇÕES OBRIGATÓRIAS — liste TODAS as medidas, cotas, larguras, comprimentos, módulos, proporções e quantidades visíveis na planta; se houver números, copie-os explicitamente
-3. FRENTE DO MERCADO — lado que mais parece ser a fachada/entrada principal
-4. ACESSOS E APOIOS — estacionamento, doca, carga, recuos, circulação externa
-5. LAYOUT INTERNO OBRIGATÓRIO — entrada, portas, caixas, corredores, setores, fundos e fluxo
-6. MAPA DE CONSTÂNCIA — o que precisa permanecer igual em fachada, entrada, corredores, vista superior e gôndolas para representar o mesmo projeto
-7. ELEMENTOS QUE NÃO PODEM SER INVENTADOS — diga claramente o que precisa ser preservado
-8. INSTRUÇÃO FINAL DE CONVERSÃO — descreva em uma frase como transformar a vista superior em render 3D coerente
+Responda em português, curto e objetivo, com estes tópicos:
+1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio/terreno
+2. MEDIDAS E PROPORÇÕES OBRIGATÓRIAS — TODAS as medidas, cotas, larguras, comprimentos, módulos visíveis (copie números explicitamente)
+3. FRENTE DO MERCADO — lado da fachada/entrada principal
+4. ACESSOS E APOIOS — estacionamento, doca, recuos, circulação externa
+5. LAYOUT INTERNO OBRIGATÓRIO — entrada, caixas, corredores, setores, fundos, fluxo
+6. MAPA DE CONSTÂNCIA — o que precisa permanecer igual em fachada, entrada, corredores e vista superior
+7. ELEMENTOS QUE NÃO PODEM SER INVENTADOS
+8. INSTRUÇÃO FINAL — como transformar a vista superior em render 3D coerente
 
-Se algo não estiver claro, diga "não identificado" em vez de inventar.` },
-            plantaRef.textPart,
-            plantaRef.imgPart,
+Se algo não estiver claro, diga "não identificado".`,
+            },
+            { type: "image_url", image_url: { url: dataUrl } },
           ],
         }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 700,
-        },
+        max_tokens: 800,
+        temperature: 0.1,
       }),
     });
 
     if (!res.ok) {
-      console.error("[PLANTA] Erro na análise:", res.status, (await res.text()).substring(0, 300));
+      console.error("[PLANTA/openai]", res.status, (await res.text()).substring(0, 300));
       return "";
     }
 
     const data = await res.json();
-    const text = (data.candidates?.[0]?.content?.parts || [])
-      .map((part: any) => typeof part.text === "string" ? part.text : "")
-      .join("\n")
-      .trim();
-
-    if (text) console.log(`[PLANTA] Resumo estrutural gerado: ${text.substring(0, 220)}...`);
+    const text = (data.choices?.[0]?.message?.content || "").trim();
+    if (text) console.log(`[PLANTA] resumo: ${text.substring(0, 200)}...`);
     return text;
   } catch (e) {
-    console.error("[PLANTA] Falha ao analisar planta:", getErrorMessage(e));
+    console.error("[PLANTA] erro:", getErrorMessage(e));
     return "";
   }
 }
+
+// ==================== REFS BUILDERS ====================
 
 function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?: string) {
   if (!url || !label || urls.includes(url)) return;
@@ -236,22 +253,16 @@ function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?
 
 function extractMeasurementLines(plantaResumo = ""): string {
   return plantaResumo
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => /\d/.test(line))
-    .join("\n");
+    .split(/\n+/).map((l) => l.trim()).filter(Boolean)
+    .filter((l) => /\d/.test(l)).join("\n");
 }
 
 function normalizeExtraRefs(rawExtras: unknown): Array<{ label: string; url: string }> {
   if (!Array.isArray(rawExtras)) return [];
-
   return rawExtras
     .filter((item): item is { label?: unknown; url?: unknown } => Boolean(item && typeof item === "object"))
     .map((item, index) => ({
-      label: typeof item.label === "string" && item.label.trim()
-        ? item.label.trim()
-        : `Anexo ${index + 1}`,
+      label: typeof item.label === "string" && item.label.trim() ? item.label.trim() : `Anexo ${index + 1}`,
       url: typeof item.url === "string" ? item.url : "",
     }))
     .filter((item) => Boolean(item.url));
@@ -264,174 +275,77 @@ function pushProjectContextRefs(
   sceneType: "externo" | "interno" | "produto",
 ) {
   if (sceneType === "produto") return;
-
-  pushMandatoryRef(
-    urls,
-    labels,
-    refs.planta as string | undefined,
-    "PLANTA BAIXA / IMPLANTAÇÃO / FOTO SATELITAL — REFERÊNCIA ESTRUTURAL MÁXIMA. O prédio, acessos, entrada, zoneamento, gôndolas, caixa, recuos, estacionamento e volumetria DEVEM nascer desta referência.",
-  );
+  pushMandatoryRef(urls, labels, refs.planta as string | undefined,
+    "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
 
   const extras = normalizeExtraRefs(refs.extras);
-  for (const [index, extra] of extras.slice(0, 4).entries()) {
-    pushMandatoryRef(
-      urls,
-      labels,
-      extra.url,
-      `ANEXO DO CLIENTE ${index + 1} (${extra.label}) — trate como evidência REAL do mercado, terreno, fachada existente, rua, contexto externo ou layout. Preserve esses elementos e NÃO invente outro imóvel se esta imagem mostrar um mercado já existente.`,
-    );
+  for (const [index, extra] of extras.slice(0, 3).entries()) {
+    pushMandatoryRef(urls, labels, extra.url,
+      `ANEXO DO CLIENTE ${index + 1} (${extra.label}) — evidência REAL do mercado/terreno. Preserve elementos. Se for mercado existente, REFORME o mesmo, não invente outro.`);
   }
 }
 
-// ==================== VERTEX AI (FALLBACK) ====================
-
-async function getVertexAccessToken(): Promise<string> {
-  const credJson = Deno.env.get("GOOGLE_APPLICATION_CREDENTIALS_JSON");
-  if (!credJson) throw new Error("Sem credenciais Vertex");
-  const creds = JSON.parse(credJson);
-  const now = Math.floor(Date.now() / 1000);
-  const toB64Url = (s: string) => btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-
-  const header = toB64Url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
-  const payload = toB64Url(JSON.stringify({
-    iss: creds.client_email, sub: creds.client_email,
-    aud: "https://oauth2.googleapis.com/token", iat: now, exp: now + 3600,
-    scope: "https://www.googleapis.com/auth/cloud-platform",
-  }));
-
-  const pemContent = creds.private_key.replace("-----BEGIN PRIVATE KEY-----", "").replace("-----END PRIVATE KEY-----", "").replace(/\n/g, "");
-  const binaryKey = Uint8Array.from(atob(pemContent), (c) => c.charCodeAt(0));
-  const cryptoKey = await crypto.subtle.importKey("pkcs8", binaryKey, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["sign"]);
-  const sig = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", cryptoKey, new TextEncoder().encode(`${header}.${payload}`));
-  let sigBin = ""; const sigBytes = new Uint8Array(sig);
-  for (let i = 0; i < sigBytes.length; i++) sigBin += String.fromCharCode(sigBytes[i]);
-
-  const jwt = `${header}.${payload}.${toB64Url(sigBin)}`;
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=${jwt}`,
-  });
-  if (!tokenRes.ok) throw new Error(`Token failed: ${await tokenRes.text()}`);
-  return (await tokenRes.json()).access_token;
-}
-
-async function generateImageVertex(accessToken: string, prompt: string): Promise<string | null> {
-  const project = Deno.env.get("GOOGLE_CLOUD_PROJECT_ID") || "rota-489018";
-  const location = Deno.env.get("GOOGLE_CLOUD_LOCATION") || "us-central1";
-  const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/imagen-3.0-generate-001:predict`;
-
-  console.log(`[VERTEX] Tentando Imagen 3.0 como fallback`);
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({
-        instances: [{ prompt }],
-        parameters: { sampleCount: 1, aspectRatio: "16:9", safetyFilterLevel: "block_few" },
-      }),
-    });
-    if (!res.ok) {
-      console.error("[VERTEX] Imagen3 erro:", res.status, await res.text());
-      return null;
-    }
-    const data = await res.json();
-    if (data.predictions?.[0]?.bytesBase64Encoded) {
-      console.log("[VERTEX] ✓ Imagem gerada por Imagen 3.0");
-      return `data:image/png;base64,${data.predictions[0].bytesBase64Encoded}`;
-    }
-  } catch (e) { console.error("[VERTEX] Imagen3 erro:", getErrorMessage(e)); }
-  return null;
-}
-
-// ==================== UPLOAD ====================
-
-async function uploadBase64Image(sb: any, projectId: string, key: string, base64Url: string): Promise<string | null> {
-  const base64Data = base64Url.replace(/^data:image\/\w+;base64,/, "");
-  const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-  const fileName = `${projectId}/output/${key}_${Date.now()}.png`;
-  const { error } = await sb.storage.from("rota-referencias").upload(fileName, bytes, { contentType: "image/png", upsert: true });
-  if (error) { console.error(`Upload ${key}:`, error.message); return null; }
-  return sb.storage.from("rota-referencias").getPublicUrl(fileName).data.publicUrl;
-}
-
-// ==================== PROMPTS COM CONSTÂNCIA ====================
+// ==================== PROMPTS ====================
 
 function promptExterno(nome: string, cidade: string, obs: string, scene: string, plantaResumo = ""): string {
   const medidas = extractMeasurementLines(plantaResumo);
-  return `Crie uma renderização 3D FOTORREALISTA de alta qualidade de um supermercado brasileiro de bairro.
+  return `Renderização 3D FOTORREALISTA de alta qualidade de um supermercado brasileiro de bairro.
 
-PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
-${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
+PROJETO: "${nome}" em ${cidade || "Brasil"}.
+${obs ? `OBSERVAÇÕES: ${obs}` : ""}
 
-${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA/TERRENO (OBRIGATÓRIO RESPEITAR):\n${plantaResumo}\n` : ""}
-${medidas ? `MEDIDAS/COTAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR SEM ALTERAR):\n${medidas}\n` : ""}
+${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA (OBRIGATÓRIO):\n${plantaResumo}\n` : ""}
+${medidas ? `MEDIDAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR):\n${medidas}\n` : ""}
 
-REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
-1. A LOGO fornecida define TUDO: nome do mercado no letreiro, paleta de cores da fachada, identidade visual completa.
-2. A PLANTA BAIXA é uma VISTA SUPERIOR do terreno/implantação do mercado. Ela NÃO é uma arte para ser copiada literalmente na imagem final.
-   Você deve CONVERTER a planta em um edifício 3D construído e reproduzir FIELMENTE:
-   - O footprint exato do prédio (retangular, em L, trapézio, recuos, encaixes, etc)
-   - A posição da entrada principal
-    - As dimensões, cotas e proporções reais extraídas da planta
-   - A frente, lateral, fundos e orientação do edifício no lote
-   - O estacionamento, doca/carga e áreas externas se indicados na planta
-   - A orientação do edifício
-    A planta baixa NÃO é decorativa — ela é o MAPA ARQUITETÔNICO da volumetria e implantação reais do mercado.
-3. A LOCALIZAÇÃO (${cidade || "Brasil"}) define o CONTEXTO: vegetação típica da região, tipo de calçada, estilo arquitetônico local.
-4. Se houver medidas numéricas na planta, trate essas medidas como RESTRIÇÃO ARQUITETÔNICA VINCULANTE. Não altere escalas, quantidades, vãos, recuos ou proporções.
-5. Gere a cena como se um arquiteto tivesse usado a planta para modelar o mercado em 3D. O resultado deve parecer um prédio real CONSTRUÍDO a partir da planta, nunca uma colagem ou interpretação livre.
-6. Se qualquer referência visual mostrar o mercado/terreno existente, você deve REFORMAR E EVOLUIR esse MESMO imóvel. Não crie um prédio novo, não troque formato, não mova a entrada e não mude a implantação.
+REGRAS DE CONSTÂNCIA (OBRIGATÓRIO):
+1. A LOGO define cores, nome no letreiro e identidade visual da fachada.
+2. A PLANTA BAIXA é vista superior. CONVERTA em edifício 3D respeitando: footprint exato, posição da entrada, dimensões/cotas reais, estacionamento e doca conforme planta.
+3. ${cidade || "Brasil"} define vegetação típica, calçada e estilo arquitetônico.
+4. Medidas numéricas = restrição arquitetônica VINCULANTE.
+5. Resultado deve parecer prédio real CONSTRUÍDO a partir da planta.
+6. Se referência mostrar mercado existente, REFORME o MESMO imóvel — não troque formato nem mova entrada.
 
-PROIBIÇÕES: NÃO renderize a planta como se fosse textura/foto colada. NÃO desenhe linhas de blueprint, cotas, legendas ou marcações técnicas. NÃO invente formato de prédio diferente da planta. NÃO mude as cores da logo. NÃO ignore a estrutura da planta baixa. NÃO ignore medidas numéricas quando existirem.
+PROIBIÇÕES: NÃO desenhe linhas de blueprint, cotas ou textos técnicos. NÃO invente formato. NÃO mude cores da logo.
 
-ESTILO: Fotorrealismo extremo. Qualidade de foto profissional de arquitetura. Iluminação natural.
+ESTILO: fotorrealismo extremo, qualidade de foto profissional de arquitetura, iluminação natural.
 
 CENA: ${scene}`;
 }
 
 function promptInterno(nome: string, cidade: string, obs: string, scene: string, plantaResumo = ""): string {
   const medidas = extractMeasurementLines(plantaResumo);
-  return `Crie uma renderização 3D FOTORREALISTA de alta qualidade do INTERIOR de um supermercado brasileiro de bairro.
+  return `Renderização 3D FOTORREALISTA do INTERIOR de um supermercado brasileiro de bairro.
 
-PROJETO: "${nome}" localizado em ${cidade || "Brasil"}.
-${obs ? `OBSERVAÇÕES DO CLIENTE: ${obs}` : ""}
+PROJETO: "${nome}" em ${cidade || "Brasil"}.
+${obs ? `OBSERVAÇÕES: ${obs}` : ""}
 
-${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA/TERRENO (OBRIGATÓRIO RESPEITAR):\n${plantaResumo}\n` : ""}
-${medidas ? `MEDIDAS/COTAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR SEM ALTERAR):\n${medidas}\n` : ""}
+${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA (OBRIGATÓRIO):\n${plantaResumo}\n` : ""}
+${medidas ? `MEDIDAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR):\n${medidas}\n` : ""}
 
-REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
-1. A LOGO fornecida define: placas internas, sinalização de seções, cores das gôndolas e comunicação visual.
-2. A PLANTA BAIXA é o PROJETO ARQUITETÔNICO visto DE CIMA. Você deve traduzi-la para um interior coerente em perspectiva 3D e reproduzir FIELMENTE:
-   - A largura e comprimento dos corredores
-   - A posição exata de cada seção (açougue, padaria, hortifruti, caixas) conforme indicado na planta
-   - O fluxo de circulação dos clientes
-   - A disposição das gôndolas e ilhas conforme o layout da planta
-   - As áreas de serviço (depósito, câmara fria) nas posições da planta
-   - O sentido da entrada até os fundos conforme a organização espacial da planta
-   - As medidas, módulos e proporções dos espaços quando existirem cotas na planta
-    A planta baixa define EXATAMENTE onde cada coisa deve estar. NÃO invente posições e NÃO trate a planta como imagem decorativa.
-3. Se houver medidas numéricas na planta, trate essas medidas como RESTRIÇÃO ARQUITETÔNICA VINCULANTE. Não altere escalas, vãos, distâncias entre gôndolas ou largura dos corredores.
-4. Se uma IMAGEM DE REFERÊNCIA DE GÔNDOLA foi fornecida, copie FIELMENTE: modelo da gôndola, estilo das prateleiras, disposição dos produtos, cores. A gôndola gerada deve parecer a mesma da referência.
-5. Produtos devem ser BRASILEIROS REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO, etc).
-6. O interior deve parecer a materialização 3D do layout visto de cima na planta, mantendo proporções, fluxo e zoneamento.
-7. Se houver fotos reais do mercado existente ou anexos do cliente, o interior deve parecer uma continuação plausível desse MESMO imóvel, preservando estrutura, posição das portas, circulação e relação com a fachada/entrada.
+REGRAS DE CONSTÂNCIA (OBRIGATÓRIO):
+1. LOGO define placas internas, sinalização e cores das gôndolas.
+2. PLANTA BAIXA define EXATAMENTE: largura/comprimento dos corredores, posição de cada seção (açougue, padaria, hortifruti, caixas), fluxo de circulação, disposição das gôndolas e áreas de serviço.
+3. Medidas numéricas = restrição VINCULANTE.
+4. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição.
+5. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
+6. Interior deve parecer materialização 3D do layout da planta.
 
-PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts diferentes da planta. NÃO mostre a planta baixa desenhada na cena. NÃO mude cores da identidade visual. NÃO ignore referências de gôndola. NÃO ignore medidas numéricas quando existirem.
+PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts. NÃO mostre planta desenhada na cena. NÃO ignore medidas.
 
-ESTILO: Fotorrealismo extremo. Iluminação comercial fluorescente branca. Piso cerâmico claro.
+ESTILO: fotorrealismo extremo, iluminação comercial fluorescente branca, piso cerâmico claro.
 
 CENA: ${scene}`;
 }
 
 function promptProduto(nome: string, cidade: string, scene: string): string {
-  return `Crie uma foto FOTORREALISTA de um item/acessório de supermercado brasileiro de bairro chamado "${nome}".
+  return `Foto FOTORREALISTA de um item/acessório de supermercado brasileiro de bairro chamado "${nome}".
 
-REGRAS DE CONSTÂNCIA VISUAL (OBRIGATÓRIO):
-1. A LOGO fornecida define: as cores exatas e o nome/símbolo que deve aparecer no item.
-2. O item deve ser SIMPLES e FUNCIONAL, típico de mercado de bairro brasileiro. NADA sofisticado ou premium.
-3. Fundo neutro (branco ou cinza claro). Iluminação de estúdio profissional.
+REGRAS:
+1. LOGO define cores exatas e nome/símbolo no item.
+2. Item SIMPLES e FUNCIONAL, típico de mercado de bairro brasileiro. NADA sofisticado.
+3. Fundo neutro (branco/cinza claro). Iluminação de estúdio.
 
-PROIBIÇÕES: NÃO invente cores diferentes da logo. NÃO faça design sofisticado/premium. Deve parecer item REAL de mercadinho.
+PROIBIÇÕES: NÃO invente cores. NÃO faça design premium. Item REAL de mercadinho.
 
 CENA: ${scene}`;
 }
@@ -447,17 +361,16 @@ interface SceneTask {
 }
 
 const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url"];
-// img_s_url e img_t_url são reservados para as VISTAS GEOMÉTRICAS OBRIGATÓRIAS (lateral e perspectiva técnica)
 
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
   const logo = refs.logo as string | undefined;
   const tasks: SceneTask[] = [];
 
-  const mkRefs = (type: string, extra?: string): { urls: string[]; labels: string[] } => {
+  const mkRefs = (_type: string, extra?: string): { urls: string[]; labels: string[] } => {
     const urls: string[] = [];
     const labels: string[] = [];
-    pushMandatoryRef(urls, labels, logo, "LOGO DO MERCADO — use estas cores, este nome e este símbolo em TODA a imagem");
-    pushMandatoryRef(urls, labels, extra, "REFERÊNCIA VISUAL ADICIONAL — use como guia de estilo para esta cena específica");
+    pushMandatoryRef(urls, labels, logo, "LOGO DO MERCADO — use estas cores, nome e símbolo em TODA a imagem");
+    pushMandatoryRef(urls, labels, extra, "REFERÊNCIA VISUAL ADICIONAL — guia de estilo para esta cena");
     return { urls, labels };
   };
 
@@ -473,46 +386,45 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const vistaSuperiorRef = refs.vista_superior_ref as string | undefined;
 
   const fixed = [
-    { key: "img_a_url", name: "Fachada (Vista Frontal)", type: "externo", ref: "fachada_ref", scene: "VISTA GEOMÉTRICA FRONTAL OBRIGATÓRIA do supermercado. Renderização arquitetônica fotorrealista vista exatamente DE FRENTE (ângulo perpendicular à fachada principal, câmera na altura humana, sem distorção de perspectiva exagerada). Toda a fachada principal centralizada e completamente visível, do chão até o topo do telhado, das laterais à largura total. O LETREIRO deve conter EXATAMENTE o nome e cores da LOGO. Estacionamento, recuos e acessos conforme a PLANTA BAIXA. Vegetação típica de " + cidade + ". Calçada brasileira. Esta imagem serve como ELEVAÇÃO FRONTAL OFICIAL do projeto." },
-    { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área interna logo após a ENTRADA PRINCIPAL do supermercado, com a frente de caixas registradoras visível. OBRIGATÓRIO ABSOLUTO: mostrar com clareza as PORTAS DE ENTRADA (portas automáticas de vidro duplas, típicas de supermercado brasileiro, com molduras de alumínio e adesivos/sinalização) ao fundo. As portas devem estar visíveis, transparentes e ATRAVÉS DELAS deve aparecer EXATAMENTE A MESMA PAISAGEM EXTERIOR DA FACHADA JÁ GERADA (mesma calçada, mesma vegetação, mesmo estacionamento, mesma luz, mesma cidade). Posição da entrada conforme PLANTA BAIXA. Quantidade de checkouts conforme PLANTA BAIXA, alinhados próximos à entrada. Tapete de entrada, sinalização com cores da LOGO. Sacolas plásticas simples com logo. Realismo fotográfico absoluto e CONSTÂNCIA TOTAL com a fachada externa de referência." },
+    { key: "img_a_url", name: "Fachada (Vista Frontal)", type: "externo", ref: "fachada_ref", scene: "VISTA FRONTAL OBRIGATÓRIA do supermercado. Renderização arquitetônica fotorrealista vista DE FRENTE (perpendicular à fachada, câmera na altura humana, sem distorção). Fachada principal centralizada e completa. Letreiro com nome e cores EXATOS da LOGO. Estacionamento e recuos conforme PLANTA. Vegetação típica de " + cidade + "." },
+    { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área interna logo após a ENTRADA com frente de caixas visível. OBRIGATÓRIO: portas automáticas de vidro duplas ao fundo, mostrando ATRAVÉS DELAS A MESMA paisagem da FACHADA JÁ GERADA (mesma calçada, vegetação, estacionamento). Quantidade de checkouts conforme PLANTA. Sinalização nas cores da LOGO." },
     { key: "img_c_url", name: "Corredores", type: "interno", ref: "corredor_ref", scene: "Corredor principal interno. Gôndolas dos dois lados com produtos brasileiros. Placas de seção nas cores da LOGO. Perspectiva central profunda." },
-    { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Área dos fundos: açougue, padaria e hortifruti conforme PLANTA BAIXA. Balcões refrigerados. Comunicação visual com cores da LOGO." },
-    { key: "img_e_url", name: "Vista Superior (Aérea)", type: "externo", ref: "vista_superior_ref", scene: "VISTA GEOMÉTRICA SUPERIOR OBRIGATÓRIA do supermercado. Renderização aérea perpendicular (vista de drone DIRETAMENTE DE CIMA, ângulo top-down de 90°, sem inclinação), mostrando o footprint completo do prédio idêntico ao da PLANTA BAIXA. O telhado, fachada, cores, letreiro, estacionamento e implantação devem corresponder EXATAMENTE à FACHADA JÁ GERADA (mesmas cores, mesmo letreiro, mesmo material de telhado, mesmo estacionamento, mesma vegetação). Esta imagem serve como PLANTA DE COBERTURA OFICIAL do projeto. Entorno urbano de " + cidade + "." },
-    { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme de funcionário: camiseta polo SIMPLES com a LOGO bordada no peito esquerdo. Cores EXATAS da logo. Em cabide ou manequim. Fundo neutro." },
-    { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES de supermercado com a LOGO impressa. Plástico branco ou na cor principal da logo. Sacola comum de mercadinho brasileiro. Fundo neutro." },
-    { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame). LOGO aplicada na parte frontal. Detalhes na cor da logo. Carrinho SIMPLES e funcional. Fundo neutro." },
-    { key: "img_s_url", name: "Vista Lateral", type: "externo", ref: "", scene: "VISTA GEOMÉTRICA LATERAL OBRIGATÓRIA do supermercado. Renderização arquitetônica fotorrealista vista exatamente DE LADO (ângulo perpendicular à lateral do prédio, câmera na altura humana, sem distorção de perspectiva). Toda a lateral do edifício centralizada e completamente visível, mostrando o comprimento total do prédio, alturas, recuos laterais e relação com o terreno. As cores, materiais, telhado, letreiro lateral (se houver) e identidade arquitetônica devem ser EXATAMENTE iguais à FACHADA JÁ GERADA e à VISTA SUPERIOR JÁ GERADA, representando o MESMO prédio sob outro ângulo. O comprimento e proporções devem respeitar a PLANTA BAIXA. Esta imagem serve como ELEVAÇÃO LATERAL OFICIAL do projeto." },
+    { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Área dos fundos: açougue, padaria e hortifruti conforme PLANTA. Balcões refrigerados. Comunicação visual nas cores da LOGO." },
+    { key: "img_e_url", name: "Vista Superior (Aérea)", type: "externo", ref: "vista_superior_ref", scene: "VISTA SUPERIOR OBRIGATÓRIA. Aérea perpendicular (drone DIRETAMENTE DE CIMA, top-down 90°). Footprint do prédio idêntico à PLANTA. Telhado, fachada e estacionamento devem corresponder EXATAMENTE à FACHADA JÁ GERADA. Entorno urbano de " + cidade + "." },
+    { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme: camiseta polo SIMPLES com LOGO bordada no peito esquerdo. Cores EXATAS da logo. Em manequim. Fundo neutro." },
+    { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES com LOGO impressa. Plástico branco ou cor da logo. Sacola comum de mercadinho. Fundo neutro." },
+    { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame). LOGO frontal. Detalhes na cor da logo. SIMPLES e funcional. Fundo neutro." },
+    { key: "img_s_url", name: "Vista Lateral", type: "externo", ref: "", scene: "VISTA LATERAL OBRIGATÓRIA. Renderização vista DE LADO (perpendicular à lateral). Comprimento total do prédio, alturas e recuos visíveis. Cores, materiais e telhado EXATAMENTE iguais à FACHADA JÁ GERADA e VISTA SUPERIOR. Comprimento conforme PLANTA." },
   ];
 
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
-
     pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto");
 
-    pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais, paisagismo externo e linguagem arquitetônica sempre que compatível com a planta baixa.");
+    pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais e linguagem arquitetônica.");
     if (s.type === "interno") {
-      pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — preserve linguagem visual interna, materiais, forro, iluminação e acabamento sem quebrar o layout da planta.");
-      pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — preserve padrão de circulação, ritmo visual e linguagem de gôndolas.");
-      pushMandatoryRef(urls, labels, caixaRef, "REFERÊNCIA DE CAIXAS ENVIADA — preserve padrão visual da entrada/caixas, sem contrariar a posição definida na planta.");
+      pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — preserve linguagem, materiais e iluminação.");
+      pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — preserve circulação e ritmo das gôndolas.");
+      pushMandatoryRef(urls, labels, caixaRef, "REFERÊNCIA DE CAIXAS ENVIADA — preserve padrão da entrada/caixas.");
     }
     if (s.key === "img_e_url") {
-      pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea, implantação e ambiente externo sem contrariar a planta.");
+      pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea.");
     }
     if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url" || s.key === "img_s_url")) {
-      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — referência ABSOLUTA de constância. Mantenha EXATAMENTE as mesmas cores, mesmo letreiro, mesma paisagem externa (calçada, vegetação, estacionamento, céu, iluminação) e mesma identidade arquitetônica. NÃO invente uma fachada diferente.");
+      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA — referência ABSOLUTA de constância. Mantenha mesmas cores, letreiro, paisagem externa e identidade arquitetônica.");
     }
     if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
-      pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA DESTE MERCADO — continue o MESMO projeto vindo da fachada. Preserve posição da porta principal, transição fachada-interior, materiais, caixas e fluxo inicial exatamente como já foram definidos.");
+      pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — preserve posição da porta, transição e fluxo inicial.");
     }
     if (corredoresGerada && (s.key === "img_d_url" || s.key === "img_e_url")) {
-      pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS DESTE MERCADO — use como continuidade obrigatória do layout interno. Preserve largura dos corredores, ritmo das gôndolas, setorização e profundidade espacial conforme a planta e as cenas anteriores.");
+      pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS — continuidade obrigatória do layout interno.");
     }
     if (interiorGerado && s.key === "img_e_url") {
-      pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR/FUNDOS JÁ GERADOS DESTE MERCADO — a vista aérea deve representar o MESMO edifício que origina esse interior, sem alterar footprint, volumetria ou implantação da planta.");
+      pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — vista aérea representa o MESMO edifício.");
     }
     if (vistaSuperiorGerada && s.key === "img_s_url") {
-      pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR JÁ GERADA DESTE MERCADO — use como referência ABSOLUTA do footprint, telhado e implantação. A vista lateral deve corresponder EXATAMENTE ao mesmo prédio mostrado de cima, com as mesmas proporções de comprimento e largura.");
+      pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR JÁ GERADA — referência ABSOLUTA do footprint. Lateral deve corresponder EXATAMENTE.");
     }
 
     let prompt: string;
@@ -526,44 +438,45 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (let i = 0; i < cats.length && i < GONDOLA_KEYS.length; i++) {
     const c = cats[i];
     const gondolaRefLabel = c.refImage
-      ? "REFERÊNCIA EXATA DA GÔNDOLA — copie FIELMENTE este modelo de gôndola, estilo de prateleira, disposição e tipo de produtos"
+      ? "REFERÊNCIA EXATA DA GÔNDOLA — copie FIELMENTE modelo, prateleiras e tipo de produtos"
       : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
     pushProjectContextRefs(urls, labels, refs, "interno");
-    pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais, iluminação e identidade visual do interior.");
-    pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas e circulação.");
-    if (fachadaGerada) {
-      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA DESTE MERCADO — a identidade visual e as cores precisam continuar iguais também nesta seção.");
-    }
-    if (entradaGerada) {
-      pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA DESTE MERCADO — mantenha continuidade exata entre entrada, caixas e restante do layout interno definido pela planta.");
-    }
-    if (corredoresGerada) {
-      pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS DESTE MERCADO — mantenha o mesmo padrão espacial, proporções e organização das gôndolas.");
-    }
-    if (interiorGerado) {
-      pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR/FUNDOS JÁ GERADOS DESTE MERCADO — preserve materiais, profundidade e coerência do mesmo prédio já construído a partir da planta.");
-    }
-    // Override the generic label for gondola ref with specific one
-    if (c.refImage && gondolaRefLabel && labels.length > 0) {
-      labels[labels.length - 1] = gondolaRefLabel;
-    }
+    pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
+    pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas.");
+    if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA — identidade visual continua igual.");
+    if (entradaGerada) pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — continuidade do layout.");
+    if (corredoresGerada) pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS — mesmo padrão espacial.");
+    if (interiorGerado) pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — coerência do mesmo prédio.");
+    if (c.refImage && gondolaRefLabel && labels.length > 0) labels[labels.length - 1] = gondolaRefLabel;
+
     const gondolaScene = `Gôndola/seção de "${c.name}" com EXATAMENTE ${c.prateleiras || 3} prateleiras visíveis.
-${c.refImage ? "IMPORTANTE: Uma imagem de referência da gôndola foi fornecida. Você DEVE reproduzir FIELMENTE o mesmo estilo, modelo e disposição da gôndola mostrada na referência." : ""}
-Produtos brasileiros REAIS de marcas conhecidas adequados para a seção "${c.name}".
-Placa de sinalização da seção "${c.name}" nas cores da LOGO.
-A posição desta gôndola no mercado deve seguir o layout da PLANTA BAIXA e o zoneamento descrito no resumo estrutural.
+${c.refImage ? "IMPORTANTE: referência da gôndola foi fornecida. Reproduza FIELMENTE estilo, modelo e disposição." : ""}
+Produtos brasileiros REAIS adequados para "${c.name}".
+Placa de sinalização nas cores da LOGO.
+Posição conforme PLANTA e zoneamento.
 ${c.observacao || ""}`;
     tasks.push({
       imgKey: GONDOLA_KEYS[i],
       sceneName: `Gôndola: ${c.name}`,
-       prompt: promptInterno(nome, cidade, obs, gondolaScene, plantaResumo),
+      prompt: promptInterno(nome, cidade, obs, gondolaScene, plantaResumo),
       refUrls: urls,
       refLabels: labels,
     });
   }
 
   return tasks;
+}
+
+// ==================== UPLOAD ====================
+
+async function uploadBase64Image(sb: any, projectId: string, key: string, base64Url: string): Promise<string | null> {
+  const base64Data = base64Url.replace(/^data:image\/\w+;base64,/, "");
+  const bytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
+  const fileName = `${projectId}/output/${key}_${Date.now()}.png`;
+  const { error } = await sb.storage.from("rota-referencias").upload(fileName, bytes, { contentType: "image/png", upsert: true });
+  if (error) { console.error(`Upload ${key}:`, error.message); return null; }
+  return sb.storage.from("rota-referencias").getPublicUrl(fileName).data.publicUrl;
 }
 
 // ==================== SELF-INVOKE ====================
@@ -606,16 +519,16 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "project_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const apiKey = Deno.env.get("GOOGLE_AI_API_KEY");
-    if (!apiKey) {
-      return new Response(JSON.stringify({ error: "GOOGLE_AI_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const openaiKey = Deno.env.get("OPENAI_API_KEY");
+    if (!openaiKey) {
+      return new Response(JSON.stringify({ error: "OPENAI_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // ---- Edição de imagem individual ----
+    // ---- Edição individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
-      let base64 = await generateImageGemini(apiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
+      let base64 = await generateImageOpenAI(openaiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
@@ -623,7 +536,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, new_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ---- Geração completa (recursiva por cena) ----
+    // ---- Geração completa ----
     const { data: project } = await sb.from("projects").select("*").eq("id", project_id).single();
     if (!project) return new Response(JSON.stringify({ error: "Projeto não encontrado" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
@@ -632,9 +545,8 @@ Deno.serve(async (req) => {
     const cidadeVal = cidade || project.cidade || "";
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
-    const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(apiKey, refs.planta, nome, cidadeVal);
+    const plantaResumo = floor_plan_summary || await analyzeFloorPlanOpenAI(openaiKey, refs.planta, nome, cidadeVal);
 
-    // CONSTÂNCIA: usa as cenas já geradas como referência obrigatória nas próximas
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
     if (project.img_b_url) refsComFachada.entrada_gerada = project.img_b_url;
@@ -643,31 +555,18 @@ Deno.serve(async (req) => {
     if (project.img_e_url) refsComFachada.vista_superior_gerada = project.img_e_url;
     const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo);
 
-    // Marcar como processando no início
     if (stage === "start") {
       await sb.from("projects").update({ status: "processando", updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`[START] Projeto "${nome}" em ${cidadeVal} — ${scenes.length} cenas, refs: logo=${!!refs.logo}, planta=${!!refs.planta}`);
-      if (plantaResumo) console.log(`[START] Resumo estrutural da planta ativo`);
+      console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!refs.logo}, planta=${!!refs.planta}`);
+      if (plantaResumo) console.log(`[START] resumo planta ATIVO`);
     }
 
-    // Processar cena atual
     if (stage === "start" || stage === "images") {
       const current = scenes[scene_offset];
       if (current) {
         console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
-
         try {
-          // 1. GEMINI (principal) — com referências visuais
-          let base64 = await generateImageGemini(apiKey, current.prompt, current.refUrls, current.refLabels);
-
-          // 2. VERTEX/IMAGEN 3 (fallback) — só texto
-          if (!base64) {
-            console.log(`[FALLBACK] Gemini falhou para ${current.sceneName}, tentando Vertex...`);
-            try {
-              const vToken = await getVertexAccessToken();
-              base64 = await generateImageVertex(vToken, current.prompt);
-            } catch (e) { console.error("[FALLBACK] Vertex falhou:", getErrorMessage(e)); }
-          }
+          let base64 = await generateImageOpenAI(openaiKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
             const stamped = await applyWatermark(base64);
@@ -677,32 +576,29 @@ Deno.serve(async (req) => {
               console.log(`✓ ${current.sceneName} concluída`);
             }
           } else {
-            console.error(`✗ ${current.sceneName} — todos os provedores falharam`);
+            console.error(`✗ ${current.sceneName} — OpenAI falhou`);
           }
         } catch (err) {
           console.error(`✗ ${current.sceneName}:`, getErrorMessage(err));
         }
       }
 
-      // Próxima cena ou finalizar
       const next = scene_offset + 1;
       if (next < scenes.length) {
         await invokeNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo });
         return new Response(JSON.stringify({ stage: "images", scene: next, total: scenes.length }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      // Todas as cenas processadas -> finalizar
       await invokeNextStage({ project_id, stage: "finalize" });
       return new Response(JSON.stringify({ stage: "finalize" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ---- Finalizar ----
     if (stage === "finalize") {
       const { data: final } = await sb.from("projects").select("*").eq("id", project_id).single();
       const count = IMAGE_KEYS.filter(k => Boolean(final?.[k])).length;
       const status = count > 0 ? "concluido" : "erro";
       await sb.from("projects").update({ status, updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`✓ Finalizado: ${status} (${count} imagens geradas)`);
+      console.log(`✓ Finalizado: ${status} (${count} imagens)`);
       return new Response(JSON.stringify({ status, images: count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
