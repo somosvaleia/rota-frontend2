@@ -92,113 +92,82 @@ async function urlToDataUrl(url: string, maxBytes = 4_000_000): Promise<string |
   } catch { return null; }
 }
 
-// ==================== OPENAI IMAGE GEN ====================
-// Usa gpt-image-1 (modelo realista da OpenAI) com referências multimodais via /images/edits
-// quando há referências, ou /images/generations quando é apenas texto.
+// ==================== GEMINI IMAGE GEN (Lovable AI Gateway) ====================
+// Usa google/gemini-2.5-flash-image (Nano Banana) — modelo multimodal que gera imagens
+// fotorrealistas mantendo CONSTÂNCIA com as imagens de referência fornecidas.
 
-async function generateImageOpenAI(
+const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
+async function generateImageGemini(
   apiKey: string,
   prompt: string,
   refUrls: string[],
   refLabels: string[],
 ): Promise<string | null> {
-  // Monta prompt enriquecido com descrição das referências (rótulos contam contexto à IA)
   const labeledPrompt = refUrls.length > 0
     ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
     : prompt;
 
-  // Carrega referências (até 4 — limite prático do gpt-image-1 edits)
-  const files: File[] = [];
-  for (let i = 0; i < Math.min(refUrls.length, 4); i++) {
-    const f = await fetchImageAsFile(refUrls[i], `ref_${i}`);
-    if (f) files.push(f);
+  // Constrói a mensagem multimodal: texto + imagens (até 6 refs)
+  const content: Array<Record<string, unknown>> = [{ type: "text", text: labeledPrompt.substring(0, 30000) }];
+  for (let i = 0; i < Math.min(refUrls.length, 6); i++) {
+    const dataUrl = await urlToDataUrl(refUrls[i]);
+    if (dataUrl) content.push({ type: "image_url", image_url: { url: dataUrl } });
   }
 
   try {
-    if (files.length > 0) {
-      // /images/edits — aceita múltiplas imagens como referência
-      const form = new FormData();
-      form.append("model", "gpt-image-1");
-      form.append("prompt", labeledPrompt.substring(0, 32000));
-      form.append("size", "1536x1024"); // landscape ~16:10, fotorrealista
-      form.append("quality", "high");
-      form.append("n", "1");
-      for (const f of files) form.append("image[]", f);
-
-      console.log(`[OPENAI/edits] ${files.length} refs, prompt ${labeledPrompt.length} chars`);
-      const res = await fetch("https://api.openai.com/v1/images/edits", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}` },
-        body: form,
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[OPENAI/edits] ${res.status}: ${err.substring(0, 400)}`);
-        return null;
-      }
-
-      const data = await res.json();
-      const b64 = data.data?.[0]?.b64_json;
-      if (b64) {
-        console.log(`[OPENAI/edits] ✓ imagem gerada`);
-        return `data:image/png;base64,${b64}`;
-      }
-      return null;
-    } else {
-      // /images/generations — apenas texto
-      console.log(`[OPENAI/gen] sem refs, prompt ${labeledPrompt.length} chars`);
-      const res = await fetch("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-image-1",
-          prompt: labeledPrompt.substring(0, 32000),
-          size: "1536x1024",
-          quality: "high",
-          n: 1,
-        }),
-      });
-
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[OPENAI/gen] ${res.status}: ${err.substring(0, 400)}`);
-        return null;
-      }
-
-      const data = await res.json();
-      const b64 = data.data?.[0]?.b64_json;
-      if (b64) {
-        console.log(`[OPENAI/gen] ✓ imagem gerada`);
-        return `data:image/png;base64,${b64}`;
-      }
-      return null;
-    }
-  } catch (e) {
-    console.error("[OPENAI] erro:", getErrorMessage(e));
-    return null;
-  }
-}
-
-// ==================== ANÁLISE DE PLANTA (GPT-4o) ====================
-
-async function analyzeFloorPlanOpenAI(apiKey: string, plantaUrl?: string, nome = "Mercado", cidade = "Brasil"): Promise<string> {
-  if (!plantaUrl) return "";
-  const dataUrl = await urlToDataUrl(plantaUrl);
-  if (!dataUrl) return "";
-
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    console.log(`[GEMINI/image] ${content.length - 1} refs, prompt ${labeledPrompt.length} chars`);
+    const res = await fetch(LOVABLE_AI_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "google/gemini-2.5-flash-image",
+        messages: [{ role: "user", content }],
+        modalities: ["image", "text"],
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error(`[GEMINI/image] ${res.status}: ${err.substring(0, 400)}`);
+      return null;
+    }
+
+    const data = await res.json();
+    // Gemini image gen retorna a imagem em choices[0].message.images[0].image_url.url (data URL)
+    const msg = data.choices?.[0]?.message;
+    const imgUrl = msg?.images?.[0]?.image_url?.url;
+    if (imgUrl && typeof imgUrl === "string" && imgUrl.startsWith("data:image")) {
+      console.log(`[GEMINI/image] ✓ imagem gerada`);
+      return imgUrl;
+    }
+    console.error(`[GEMINI/image] resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
+    return null;
+  } catch (e) {
+    console.error("[GEMINI/image] erro:", getErrorMessage(e));
+    return null;
+  }
+}
+
+// ==================== ANÁLISE DE PLANTA (Gemini 2.5 Pro) ====================
+
+async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome = "Mercado", cidade = "Brasil"): Promise<string> {
+  if (!plantaUrl) return "";
+  const dataUrl = await urlToDataUrl(plantaUrl);
+  if (!dataUrl) return "";
+
+  try {
+    const res = await fetch(LOVABLE_AI_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-pro",
         messages: [{
           role: "user",
           content: [
@@ -223,13 +192,11 @@ Se algo não estiver claro, diga "não identificado".`,
             { type: "image_url", image_url: { url: dataUrl } },
           ],
         }],
-        max_tokens: 800,
-        temperature: 0.1,
       }),
     });
 
     if (!res.ok) {
-      console.error("[PLANTA/openai]", res.status, (await res.text()).substring(0, 300));
+      console.error("[PLANTA/gemini]", res.status, (await res.text()).substring(0, 300));
       return "";
     }
 
@@ -519,16 +486,16 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "project_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const openaiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!openaiKey) {
-      return new Response(JSON.stringify({ error: "OPENAI_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+    if (!lovableKey) {
+      return new Response(JSON.stringify({ error: "LOVABLE_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     // ---- Edição individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
-      let base64 = await generateImageOpenAI(openaiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
+      let base64 = await generateImageGemini(lovableKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
@@ -545,7 +512,7 @@ Deno.serve(async (req) => {
     const cidadeVal = cidade || project.cidade || "";
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
-    const plantaResumo = floor_plan_summary || await analyzeFloorPlanOpenAI(openaiKey, refs.planta, nome, cidadeVal);
+    const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(lovableKey, refs.planta, nome, cidadeVal);
 
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
@@ -566,7 +533,7 @@ Deno.serve(async (req) => {
       if (current) {
         console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
         try {
-          let base64 = await generateImageOpenAI(openaiKey, current.prompt, current.refUrls, current.refLabels);
+          let base64 = await generateImageGemini(lovableKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
             const stamped = await applyWatermark(base64);
@@ -576,7 +543,7 @@ Deno.serve(async (req) => {
               console.log(`✓ ${current.sceneName} concluída`);
             }
           } else {
-            console.error(`✗ ${current.sceneName} — OpenAI falhou`);
+            console.error(`✗ ${current.sceneName} — Gemini falhou`);
           }
         } catch (err) {
           console.error(`✗ ${current.sceneName}:`, getErrorMessage(err));

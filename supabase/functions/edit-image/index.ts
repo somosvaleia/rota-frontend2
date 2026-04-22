@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+
 // ==================== WATERMARK ====================
 
 let cachedWatermark: Image | null = null;
@@ -51,15 +53,17 @@ async function applyWatermarkBytes(bytes: Uint8Array): Promise<Uint8Array> {
 
 // ==================== HELPERS ====================
 
-async function fetchImageAsFile(url: string, filename: string, maxBytes = 4_000_000): Promise<File | null> {
+async function urlToDataUrl(url: string, maxBytes = 4_000_000): Promise<string | null> {
   try {
     const res = await fetch(url);
     if (!res.ok) return null;
     const buf = await res.arrayBuffer();
     if (buf.byteLength > maxBytes) return null;
+    const bytes = new Uint8Array(buf);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
     const ct = res.headers.get("content-type") || "image/png";
-    const ext = ct.includes("jpeg") || ct.includes("jpg") ? "jpg" : ct.includes("webp") ? "webp" : "png";
-    return new File([buf], `${filename}.${ext}`, { type: ct });
+    return `data:${ct};base64,${btoa(bin)}`;
   } catch { return null; }
 }
 
@@ -76,53 +80,72 @@ Deno.serve(async (req) => {
       );
     }
 
-    const openaiKey = Deno.env.get("OPENAI_API_KEY");
-    if (!openaiKey) {
+    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
+    if (!lovableKey) {
       return new Response(
-        JSON.stringify({ error: "OPENAI_API_KEY não configurada" }),
+        JSON.stringify({ error: "LOVABLE_API_KEY não configurada" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Carrega imagem original como referência para edição
-    const refFile = await fetchImageAsFile(image_url, "original");
-    if (!refFile) {
+    // Carrega imagem original como referência
+    const refDataUrl = await urlToDataUrl(image_url);
+    if (!refDataUrl) {
       return new Response(
         JSON.stringify({ error: "Failed to fetch source image" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Edita via OpenAI gpt-image-1 /images/edits
-    const form = new FormData();
-    form.append("model", "gpt-image-1");
-    form.append("prompt", `${prompt}\n\nMantenha o mesmo enquadramento, identidade visual e qualidade fotorrealista da imagem original.`.substring(0, 32000));
-    form.append("size", "1536x1024");
-    form.append("quality", "high");
-    form.append("n", "1");
-    form.append("image[]", refFile);
+    const enrichedPrompt = `${prompt}\n\nMantenha o mesmo enquadramento, identidade visual e qualidade fotorrealista da imagem original. CONSTÂNCIA TOTAL com a referência fornecida.`;
 
-    console.log(`[OPENAI/edit] editando ${image_key}`);
-    const aiRes = await fetch("https://api.openai.com/v1/images/edits", {
+    console.log(`[GEMINI/edit] editando ${image_key}`);
+    const aiRes = await fetch(LOVABLE_AI_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${openaiKey}` },
-      body: form,
+      headers: {
+        Authorization: `Bearer ${lovableKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash-image",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: enrichedPrompt.substring(0, 30000) },
+            { type: "image_url", image_url: { url: refDataUrl } },
+          ],
+        }],
+        modalities: ["image", "text"],
+      }),
     });
 
     if (!aiRes.ok) {
       const errText = await aiRes.text();
-      console.error(`[OPENAI/edit] ${aiRes.status}: ${errText.substring(0, 400)}`);
+      console.error(`[GEMINI/edit] ${aiRes.status}: ${errText.substring(0, 400)}`);
+      if (aiRes.status === 429) {
+        return new Response(
+          JSON.stringify({ error: "Rate limit excedido. Aguarde alguns segundos e tente novamente." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      if (aiRes.status === 402) {
+        return new Response(
+          JSON.stringify({ error: "Créditos esgotados. Adicione créditos em Settings > Workspace > Usage." }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
       return new Response(
-        JSON.stringify({ error: `OpenAI request failed: ${errText.substring(0, 300)}` }),
+        JSON.stringify({ error: `Gemini request failed: ${errText.substring(0, 300)}` }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     const aiData = await aiRes.json();
-    const b64 = aiData.data?.[0]?.b64_json;
-    if (!b64) {
+    const imgUrl = aiData.choices?.[0]?.message?.images?.[0]?.image_url?.url as string | undefined;
+    if (!imgUrl || !imgUrl.startsWith("data:image")) {
+      console.error("[GEMINI/edit] resposta sem imagem:", JSON.stringify(aiData).substring(0, 300));
       return new Response(
-        JSON.stringify({ error: "OpenAI did not return an image" }),
+        JSON.stringify({ error: "Gemini did not return an image" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -132,6 +155,7 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
+    const b64 = imgUrl.replace(/^data:image\/\w+;base64,/, "");
     const rawBytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const imageBytes = await applyWatermarkBytes(rawBytes);
     const fileName = `${project_id}/output/edited_${image_key}_${Date.now()}.png`;
