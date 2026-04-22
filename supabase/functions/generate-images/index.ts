@@ -6,7 +6,9 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
+const GEMINI_TEXT_MODEL = "gemini-2.5-pro";
 const MAX_REFERENCE_BYTES = 500_000;
 const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
 
