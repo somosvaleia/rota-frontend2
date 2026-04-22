@@ -3,8 +3,12 @@ import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
+
+const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const MAX_REFERENCE_BYTES = 500_000;
+const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
 
 // ==================== WATERMARK ====================
 
@@ -29,6 +33,45 @@ async function loadWatermark(): Promise<Image | null> {
   }
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
+function resizeToFit(source: Image, maxDimension: number): Image {
+  const scale = Math.min(maxDimension / source.width, maxDimension / source.height, 1);
+  const copy = source.clone();
+
+  if (scale >= 1) return copy;
+
+  const targetWidth = Math.max(1, Math.round(source.width * scale));
+  const targetHeight = Math.max(1, Math.round(source.height * scale));
+  copy.resize(targetWidth, targetHeight);
+  return copy;
+}
+
+async function optimizeImageDataUrl(bytes: Uint8Array, maxBytes = MAX_REFERENCE_BYTES): Promise<string | null> {
+  try {
+    const decoded = await Image.decode(bytes);
+
+    for (const maxDimension of IMAGE_SIZE_STEPS) {
+      const resized = resizeToFit(decoded, maxDimension);
+      const encoded = await resized.encode(1);
+
+      if (encoded.byteLength <= maxBytes || maxDimension === IMAGE_SIZE_STEPS[IMAGE_SIZE_STEPS.length - 1]) {
+        console.log(`[REF] imagem otimizada para ${resized.width}x${resized.height} (${Math.round(encoded.byteLength / 1024)}KB)`);
+        return `data:image/png;base64,${bytesToBase64(encoded)}`;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    console.error("[REF] falha ao otimizar imagem:", getErrorMessage(error));
+    return null;
+  }
+}
+
 async function applyWatermark(base64Url: string): Promise<string> {
   try {
     const wm = await loadWatermark();
@@ -45,9 +88,7 @@ async function applyWatermark(base64Url: string): Promise<string> {
     const y = img.height - targetH - margin;
     img.composite(wmResized, x, y);
     const outBytes = await img.encode(1);
-    let bin = "";
-    for (let i = 0; i < outBytes.length; i++) bin += String.fromCharCode(outBytes[i]);
-    return `data:image/png;base64,${btoa(bin)}`;
+    return `data:image/png;base64,${bytesToBase64(outBytes)}`;
   } catch (e) {
     console.error("[WATERMARK] aplicar:", e instanceof Error ? e.message : String(e));
     return base64Url;
@@ -60,13 +101,16 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-async function fetchImageAsFile(url: string, filename: string, maxBytes = 4_000_000): Promise<File | null> {
+async function fetchImageAsFile(url: string, filename: string, maxBytes = MAX_REFERENCE_BYTES): Promise<File | null> {
   try {
     const res = await fetch(url);
-    if (!res.ok) { console.warn(`Ref fetch ${res.status}: ${url.substring(0, 60)}`); return null; }
+    if (!res.ok) {
+      console.warn(`Ref fetch ${res.status}: ${url.substring(0, 60)}`);
+      return null;
+    }
     const buf = await res.arrayBuffer();
     if (buf.byteLength > maxBytes) {
-      console.warn(`Ref too large (${(buf.byteLength/1024).toFixed(0)}KB), skipping`);
+      console.warn(`Ref too large (${(buf.byteLength / 1024).toFixed(0)}KB), skipping`);
       return null;
     }
     const ct = res.headers.get("content-type") || "image/png";
@@ -78,25 +122,32 @@ async function fetchImageAsFile(url: string, filename: string, maxBytes = 4_000_
   }
 }
 
-async function urlToDataUrl(url: string, maxBytes = 4_000_000): Promise<string | null> {
+async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promise<string | null> {
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
-    const buf = await res.arrayBuffer();
-    if (buf.byteLength > maxBytes) return null;
-    const bytes = new Uint8Array(buf);
-    let bin = "";
-    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    if (!res.ok) {
+      console.warn(`[REF] fetch ${res.status}: ${url.substring(0, 80)}`);
+      return null;
+    }
+
     const ct = res.headers.get("content-type") || "image/png";
-    return `data:${ct};base64,${btoa(bin)}`;
-  } catch { return null; }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+
+    if (bytes.byteLength <= maxBytes) {
+      return `data:${ct};base64,${bytesToBase64(bytes)}`;
+    }
+
+    console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Otimizando...`);
+    return await optimizeImageDataUrl(bytes, maxBytes);
+  } catch (error) {
+    console.error("[REF] erro ao carregar referência:", getErrorMessage(error));
+    return null;
+  }
 }
 
 // ==================== GEMINI IMAGE GEN (Lovable AI Gateway) ====================
 // Usa google/gemini-2.5-flash-image (Nano Banana) — modelo multimodal que gera imagens
 // fotorrealistas mantendo CONSTÂNCIA com as imagens de referência fornecidas.
-
-const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
 
 async function generateImageGemini(
   apiKey: string,
@@ -108,12 +159,16 @@ async function generateImageGemini(
     ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
     : prompt;
 
-  // Constrói a mensagem multimodal: texto + imagens (até 6 refs)
   const content: Array<Record<string, unknown>> = [{ type: "text", text: labeledPrompt.substring(0, 30000) }];
-  for (let i = 0; i < Math.min(refUrls.length, 6); i++) {
-    const dataUrl = await urlToDataUrl(refUrls[i]);
-    if (dataUrl) content.push({ type: "image_url", image_url: { url: dataUrl } });
-  }
+  const normalizedRefs = await Promise.all(refUrls.slice(0, 6).map((url) => urlToDataUrl(url)));
+
+  normalizedRefs.forEach((dataUrl, index) => {
+    if (dataUrl) {
+      content.push({ type: "image_url", image_url: { url: dataUrl } });
+    } else {
+      console.warn(`[GEMINI/image] referência ignorada: ${refLabels[index] || `Ref ${index + 1}`}`);
+    }
+  });
 
   try {
     console.log(`[GEMINI/image] ${content.length - 1} refs, prompt ${labeledPrompt.length} chars`);
@@ -127,6 +182,7 @@ async function generateImageGemini(
         model: "google/gemini-2.5-flash-image",
         messages: [{ role: "user", content }],
         modalities: ["image", "text"],
+        max_tokens: 8192,
       }),
     });
 
@@ -137,11 +193,10 @@ async function generateImageGemini(
     }
 
     const data = await res.json();
-    // Gemini image gen retorna a imagem em choices[0].message.images[0].image_url.url (data URL)
     const msg = data.choices?.[0]?.message;
     const imgUrl = msg?.images?.[0]?.image_url?.url;
     if (imgUrl && typeof imgUrl === "string" && imgUrl.startsWith("data:image")) {
-      console.log(`[GEMINI/image] ✓ imagem gerada`);
+      console.log("[GEMINI/image] ✓ imagem gerada");
       return imgUrl;
     }
     console.error(`[GEMINI/image] resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
@@ -192,6 +247,7 @@ Se algo não estiver claro, diga "não identificado".`,
             { type: "image_url", image_url: { url: dataUrl } },
           ],
         }],
+        max_tokens: 2048,
       }),
     });
 
