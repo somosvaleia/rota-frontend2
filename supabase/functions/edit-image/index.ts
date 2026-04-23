@@ -7,7 +7,13 @@ const corsHeaders = {
 };
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+// Fallback chain — se um modelo retornar 404, tenta o próximo automaticamente.
+const GEMINI_IMAGE_MODELS = [
+  "gemini-3.1-flash-image-preview",
+  "gemini-2.5-flash-image-preview",
+  "gemini-2.5-flash-image",
+  "gemini-2.0-flash-exp-image-generation",
+];
 
 // ==================== WATERMARK ====================
 
