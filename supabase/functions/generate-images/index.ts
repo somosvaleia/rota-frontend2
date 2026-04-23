@@ -228,40 +228,53 @@ async function generateImageGemini(
     }
   });
 
-  try {
-    console.log(`[GEMINI/image] ${parts.length - 1} refs, prompt ${labeledPrompt.length} chars`);
-    const url = `${GEMINI_API_BASE}/${GEMINI_IMAGE_MODEL}:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts }],
-        generationConfig: {
-          responseModalities: ["TEXT", "IMAGE"],
-          maxOutputTokens: 8192,
-        },
-      }),
-    });
+  const body = JSON.stringify({
+    contents: [{ role: "user", parts }],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      maxOutputTokens: 8192,
+    },
+  });
 
-    if (!res.ok) {
-      const err = await res.text();
-      console.error(`[GEMINI/image] ${res.status}: ${err.substring(0, 400)}`);
+  console.log(`[GEMINI/image] ${parts.length - 1} refs, prompt ${labeledPrompt.length} chars`);
+
+  for (let i = 0; i < GEMINI_IMAGE_MODELS.length; i++) {
+    const model = GEMINI_IMAGE_MODELS[i];
+    try {
+      const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[GEMINI/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+        const shouldFallback = res.status === 404 ||
+          (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(err));
+        if (shouldFallback && i < GEMINI_IMAGE_MODELS.length - 1) {
+          console.warn(`[GEMINI/image] fallback → ${GEMINI_IMAGE_MODELS[i + 1]}`);
+          continue;
+        }
+        return null;
+      }
+
+      const data = await res.json();
+      logGeminiDiagnostics(`GEMINI/image:${model}`, data);
+      const imageData = extractGeminiImageData(data);
+      if (imageData) {
+        console.log(`[GEMINI/image] ✓ imagem gerada com ${model}`);
+        return imageData;
+      }
+      console.error(`[GEMINI/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
       return null;
+    } catch (e) {
+      console.error(`[GEMINI/image] ${model} erro:`, getErrorMessage(e));
+      if (i === GEMINI_IMAGE_MODELS.length - 1) return null;
     }
-
-    const data = await res.json();
-    logGeminiDiagnostics("GEMINI/image", data);
-    const imageData = extractGeminiImageData(data);
-    if (imageData) {
-      console.log("[GEMINI/image] ✓ imagem gerada");
-      return imageData;
-    }
-    console.error(`[GEMINI/image] resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
-    return null;
-  } catch (e) {
-    console.error("[GEMINI/image] erro:", getErrorMessage(e));
-    return null;
   }
+  return null;
 }
 
 // ==================== ANÁLISE DE PLANTA (Gemini 2.5 Pro — API direta) ====================
