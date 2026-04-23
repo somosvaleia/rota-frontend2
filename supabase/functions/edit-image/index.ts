@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
+const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 
 // ==================== WATERMARK ====================
 
@@ -118,11 +118,12 @@ Deno.serve(async (req) => {
           role: "user",
           parts: [
             { text: enrichedPrompt.substring(0, 30000) },
-            { inline_data: { mimeType: inlineMatch[1], data: inlineMatch[2] } },
+            { inlineData: { mimeType: inlineMatch[1], data: inlineMatch[2] } },
           ],
         }],
         generationConfig: {
-          responseModalities: ["IMAGE", "TEXT"],
+          responseModalities: ["TEXT", "IMAGE"],
+          maxOutputTokens: 8192,
         },
       }),
     });
@@ -143,12 +144,12 @@ Deno.serve(async (req) => {
     }
 
     const aiData = await aiRes.json();
-    let imgUrl: string | undefined;
     const candParts = aiData.candidates?.[0]?.content?.parts || [];
+    let imgUrl: string | undefined;
     for (const p of candParts) {
-      const inline = p.inline_data || p.inlineData;
+      const inline = p.inlineData || p.inline_data;
       if (inline?.data) {
-        const mimeType = inline.mime_type || inline.mimeType || "image/png";
+        const mimeType = inline.mimeType || inline.mime_type || "image/png";
         imgUrl = `data:${mimeType};base64,${inline.data}`;
         break;
       }

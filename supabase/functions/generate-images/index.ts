@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image-preview";
+const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
 const GEMINI_TEXT_MODEL = "gemini-2.5-pro";
 const MAX_REFERENCE_BYTES = 500_000;
 const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
@@ -148,7 +148,7 @@ async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promis
 }
 
 // ==================== GEMINI IMAGE GEN (Google AI Studio API direta) ====================
-// Usa gemini-2.5-flash-image-preview — modelo multimodal que gera imagens
+// Usa gemini-3.1-flash-image-preview — modelo multimodal que gera imagens
 // fotorrealistas mantendo CONSTÂNCIA com as imagens de referência fornecidas.
 
 function dataUrlToInlineData(dataUrl: string): { mimeType: string; data: string } | null {
