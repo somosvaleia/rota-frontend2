@@ -157,6 +157,42 @@ function dataUrlToInlineData(dataUrl: string): { mimeType: string; data: string 
   return { mimeType: match[1], data: match[2] };
 }
 
+function extractGeminiImageData(payload: any): string | null {
+  const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
+
+  for (const candidate of candidates) {
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+    for (const part of parts) {
+      const inline = part?.inlineData || part?.inline_data;
+      if (inline?.data) {
+        const mimeType = inline?.mimeType || inline?.mime_type || "image/png";
+        return `data:${mimeType};base64,${inline.data}`;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractGeminiText(payload: any): string {
+  const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
+  const texts: string[] = [];
+
+  for (const candidate of candidates) {
+    const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+    for (const part of parts) {
+      if (typeof part?.text === "string" && part.text.trim()) texts.push(part.text.trim());
+    }
+  }
+
+  return texts.join("\n").trim();
+}
+
+function logGeminiDiagnostics(scope: string, payload: any) {
+  const candidate = payload?.candidates?.[0];
+  console.log(`[${scope}] finishReason=${candidate?.finishReason || "unknown"} promptTokens=${payload?.usageMetadata?.promptTokenCount ?? "n/a"} totalTokens=${payload?.usageMetadata?.totalTokenCount ?? "n/a"}`);
+}
+
 async function generateImageGemini(
   apiKey: string,
   prompt: string,
@@ -174,7 +210,7 @@ async function generateImageGemini(
     if (dataUrl) {
       const inline = dataUrlToInlineData(dataUrl);
       if (inline) {
-        parts.push({ inline_data: inline });
+        parts.push({ inlineData: inline });
       }
     } else {
       console.warn(`[GEMINI/image] referência ignorada: ${refLabels[index] || `Ref ${index + 1}`}`);
@@ -190,7 +226,8 @@ async function generateImageGemini(
       body: JSON.stringify({
         contents: [{ role: "user", parts }],
         generationConfig: {
-          responseModalities: ["IMAGE", "TEXT"],
+          responseModalities: ["TEXT", "IMAGE"],
+          maxOutputTokens: 8192,
         },
       }),
     });
@@ -202,17 +239,11 @@ async function generateImageGemini(
     }
 
     const data = await res.json();
-    const candidates = data.candidates || [];
-    for (const cand of candidates) {
-      const candParts = cand?.content?.parts || [];
-      for (const p of candParts) {
-        const inline = p.inline_data || p.inlineData;
-        if (inline?.data) {
-          const mimeType = inline.mime_type || inline.mimeType || "image/png";
-          console.log("[GEMINI/image] ✓ imagem gerada");
-          return `data:${mimeType};base64,${inline.data}`;
-        }
-      }
+    logGeminiDiagnostics("GEMINI/image", data);
+    const imageData = extractGeminiImageData(data);
+    if (imageData) {
+      console.log("[GEMINI/image] ✓ imagem gerada");
+      return imageData;
     }
     console.error(`[GEMINI/image] resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
     return null;
@@ -257,10 +288,10 @@ Responda em português, curto e objetivo, com estes tópicos:
 
 Se algo não estiver claro, diga "não identificado".`,
             },
-            { inline_data: inline },
+            { inlineData: inline },
           ],
         }],
-        generationConfig: { maxOutputTokens: 2048 },
+        generationConfig: { maxOutputTokens: 4096 },
       }),
     });
 
@@ -270,7 +301,8 @@ Se algo não estiver claro, diga "não identificado".`,
     }
 
     const data = await res.json();
-    const text = (data.candidates?.[0]?.content?.parts?.map((p: any) => p.text).filter(Boolean).join("\n") || "").trim();
+    logGeminiDiagnostics("PLANTA/gemini", data);
+    const text = extractGeminiText(data);
     if (text) console.log(`[PLANTA] resumo: ${text.substring(0, 200)}...`);
     return text;
   } catch (e) {
