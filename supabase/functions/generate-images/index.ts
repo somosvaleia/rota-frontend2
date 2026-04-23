@@ -7,8 +7,19 @@ const corsHeaders = {
 };
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
-const GEMINI_TEXT_MODEL = "gemini-2.5-pro";
+// Fallback chain — se um modelo retornar 404 (modelo não disponível para a chave),
+// tenta o próximo automaticamente.
+const GEMINI_IMAGE_MODELS = [
+  "gemini-3.1-flash-image-preview",
+  "gemini-2.5-flash-image-preview",
+  "gemini-2.5-flash-image",
+  "gemini-2.0-flash-exp-image-generation",
+];
+const GEMINI_TEXT_MODELS = [
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+];
 const MAX_REFERENCE_BYTES = 500_000;
 const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
 
@@ -217,40 +228,53 @@ async function generateImageGemini(
     }
   });
 
-  try {
-    console.log(`[GEMINI/image] ${parts.length - 1} refs, prompt ${labeledPrompt.length} chars`);
-    const url = `${GEMINI_API_BASE}/${GEMINI_IMAGE_MODEL}:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts }],
-        generationConfig: {
-          responseModalities: ["TEXT", "IMAGE"],
-          maxOutputTokens: 8192,
-        },
-      }),
-    });
+  const body = JSON.stringify({
+    contents: [{ role: "user", parts }],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+      maxOutputTokens: 8192,
+    },
+  });
 
-    if (!res.ok) {
-      const err = await res.text();
-      console.error(`[GEMINI/image] ${res.status}: ${err.substring(0, 400)}`);
+  console.log(`[GEMINI/image] ${parts.length - 1} refs, prompt ${labeledPrompt.length} chars`);
+
+  for (let i = 0; i < GEMINI_IMAGE_MODELS.length; i++) {
+    const model = GEMINI_IMAGE_MODELS[i];
+    try {
+      const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[GEMINI/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+        const shouldFallback = res.status === 404 ||
+          (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(err));
+        if (shouldFallback && i < GEMINI_IMAGE_MODELS.length - 1) {
+          console.warn(`[GEMINI/image] fallback → ${GEMINI_IMAGE_MODELS[i + 1]}`);
+          continue;
+        }
+        return null;
+      }
+
+      const data = await res.json();
+      logGeminiDiagnostics(`GEMINI/image:${model}`, data);
+      const imageData = extractGeminiImageData(data);
+      if (imageData) {
+        console.log(`[GEMINI/image] ✓ imagem gerada com ${model}`);
+        return imageData;
+      }
+      console.error(`[GEMINI/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
       return null;
+    } catch (e) {
+      console.error(`[GEMINI/image] ${model} erro:`, getErrorMessage(e));
+      if (i === GEMINI_IMAGE_MODELS.length - 1) return null;
     }
-
-    const data = await res.json();
-    logGeminiDiagnostics("GEMINI/image", data);
-    const imageData = extractGeminiImageData(data);
-    if (imageData) {
-      console.log("[GEMINI/image] ✓ imagem gerada");
-      return imageData;
-    }
-    console.error(`[GEMINI/image] resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
-    return null;
-  } catch (e) {
-    console.error("[GEMINI/image] erro:", getErrorMessage(e));
-    return null;
   }
+  return null;
 }
 
 // ==================== ANÁLISE DE PLANTA (Gemini 2.5 Pro — API direta) ====================
@@ -262,17 +286,12 @@ async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome =
   const inline = dataUrlToInlineData(dataUrl);
   if (!inline) return "";
 
-  try {
-    const url = `${GEMINI_API_BASE}/${GEMINI_TEXT_MODEL}:generateContent?key=${apiKey}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [
-            {
-              text: `Analise esta PLANTA BAIXA / implantação / foto satelital do projeto "${nome}" em ${cidade || "Brasil"}.
+  const requestBody = JSON.stringify({
+    contents: [{
+      role: "user",
+      parts: [
+        {
+          text: `Analise esta PLANTA BAIXA / implantação / foto satelital do projeto "${nome}" em ${cidade || "Brasil"}.
 
 IMPORTANTE: a imagem é uma vista DE CIMA. Extraia restrições espaciais REAIS para construir um supermercado coerente em 3D. NÃO trate como textura ou fachada pronta.
 
@@ -287,28 +306,46 @@ Responda em português, curto e objetivo, com estes tópicos:
 8. INSTRUÇÃO FINAL — como transformar a vista superior em render 3D coerente
 
 Se algo não estiver claro, diga "não identificado".`,
-            },
-            { inlineData: inline },
-          ],
-        }],
-        generationConfig: { maxOutputTokens: 4096 },
-      }),
-    });
+        },
+        { inlineData: inline },
+      ],
+    }],
+    generationConfig: { maxOutputTokens: 4096 },
+  });
 
-    if (!res.ok) {
-      console.error("[PLANTA/gemini]", res.status, (await res.text()).substring(0, 300));
-      return "";
+  for (let i = 0; i < GEMINI_TEXT_MODELS.length; i++) {
+    const model = GEMINI_TEXT_MODELS[i];
+    try {
+      const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestBody,
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        console.error(`[PLANTA/gemini] ${model} → ${res.status}: ${errText.substring(0, 300)}`);
+        const shouldFallback = res.status === 404 ||
+          (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(errText));
+        if (shouldFallback && i < GEMINI_TEXT_MODELS.length - 1) {
+          console.warn(`[PLANTA/gemini] fallback → ${GEMINI_TEXT_MODELS[i + 1]}`);
+          continue;
+        }
+        return "";
+      }
+
+      const data = await res.json();
+      logGeminiDiagnostics(`PLANTA/gemini:${model}`, data);
+      const text = extractGeminiText(data);
+      if (text) console.log(`[PLANTA] resumo (${model}): ${text.substring(0, 200)}...`);
+      return text;
+    } catch (e) {
+      console.error(`[PLANTA] ${model} erro:`, getErrorMessage(e));
+      if (i === GEMINI_TEXT_MODELS.length - 1) return "";
     }
-
-    const data = await res.json();
-    logGeminiDiagnostics("PLANTA/gemini", data);
-    const text = extractGeminiText(data);
-    if (text) console.log(`[PLANTA] resumo: ${text.substring(0, 200)}...`);
-    return text;
-  } catch (e) {
-    console.error("[PLANTA] erro:", getErrorMessage(e));
-    return "";
   }
+  return "";
 }
 
 // ==================== REFS BUILDERS ====================

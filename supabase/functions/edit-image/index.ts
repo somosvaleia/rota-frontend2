@@ -7,7 +7,13 @@ const corsHeaders = {
 };
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-const GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview";
+// Fallback chain — se um modelo retornar 404, tenta o próximo automaticamente.
+const GEMINI_IMAGE_MODELS = [
+  "gemini-3.1-flash-image-preview",
+  "gemini-2.5-flash-image-preview",
+  "gemini-2.5-flash-image",
+  "gemini-2.0-flash-exp-image-generation",
+];
 
 // ==================== WATERMARK ====================
 
@@ -109,41 +115,70 @@ Deno.serve(async (req) => {
     const enrichedPrompt = `${prompt}\n\nMantenha o mesmo enquadramento, identidade visual e qualidade fotorrealista da imagem original. CONSTÂNCIA TOTAL com a referência fornecida.`;
 
     console.log(`[GEMINI/edit] editando ${image_key}`);
-    const url = `${GEMINI_API_BASE}/${GEMINI_IMAGE_MODEL}:generateContent?key=${lovableKey}`;
-    const aiRes = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          role: "user",
-          parts: [
-            { text: enrichedPrompt.substring(0, 30000) },
-            { inlineData: { mimeType: inlineMatch[1], data: inlineMatch[2] } },
-          ],
-        }],
-        generationConfig: {
-          responseModalities: ["TEXT", "IMAGE"],
-          maxOutputTokens: 8192,
-        },
-      }),
+    const requestBody = JSON.stringify({
+      contents: [{
+        role: "user",
+        parts: [
+          { text: enrichedPrompt.substring(0, 30000) },
+          { inlineData: { mimeType: inlineMatch[1], data: inlineMatch[2] } },
+        ],
+      }],
+      generationConfig: {
+        responseModalities: ["TEXT", "IMAGE"],
+        maxOutputTokens: 8192,
+      },
     });
 
-    if (!aiRes.ok) {
-      const errText = await aiRes.text();
-      console.error(`[GEMINI/edit] ${aiRes.status}: ${errText.substring(0, 400)}`);
-      if (aiRes.status === 429) {
+    let aiData: any = null;
+    let lastErrorText = "";
+    let lastStatus = 0;
+    let usedModel = "";
+
+    for (let i = 0; i < GEMINI_IMAGE_MODELS.length; i++) {
+      const model = GEMINI_IMAGE_MODELS[i];
+      const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${lovableKey}`;
+      const aiRes = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestBody,
+      });
+
+      if (aiRes.ok) {
+        aiData = await aiRes.json();
+        usedModel = model;
+        console.log(`[GEMINI/edit] ✓ ${model}`);
+        break;
+      }
+
+      lastStatus = aiRes.status;
+      lastErrorText = await aiRes.text();
+      console.error(`[GEMINI/edit] ${model} → ${lastStatus}: ${lastErrorText.substring(0, 300)}`);
+
+      if (lastStatus === 429) {
         return new Response(
           JSON.stringify({ error: "Rate limit excedido. Aguarde alguns segundos e tente novamente." }),
           { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } }
         );
       }
+
+      const shouldFallback = lastStatus === 404 ||
+        (lastStatus === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(lastErrorText));
+      if (!shouldFallback || i === GEMINI_IMAGE_MODELS.length - 1) {
+        return new Response(
+          JSON.stringify({ error: `Gemini request failed: ${lastErrorText.substring(0, 300)}` }),
+          { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      console.warn(`[GEMINI/edit] fallback → ${GEMINI_IMAGE_MODELS[i + 1]}`);
+    }
+
+    if (!aiData) {
       return new Response(
-        JSON.stringify({ error: `Gemini request failed: ${errText.substring(0, 300)}` }),
+        JSON.stringify({ error: `Gemini request failed: ${lastErrorText.substring(0, 300)}` }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    const aiData = await aiRes.json();
     const candParts = aiData.candidates?.[0]?.content?.parts || [];
     let imgUrl: string | undefined;
     for (const p of candParts) {
@@ -155,7 +190,7 @@ Deno.serve(async (req) => {
       }
     }
     if (!imgUrl) {
-      console.error("[GEMINI/edit] resposta sem imagem:", JSON.stringify(aiData).substring(0, 300));
+      console.error(`[GEMINI/edit] ${usedModel} resposta sem imagem:`, JSON.stringify(aiData).substring(0, 300));
       return new Response(
         JSON.stringify({ error: "Gemini did not return an image" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
