@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       projects: {
         Row: {
+          approved_steps: Json
           categorias: Json | null
           cidade: string
           created_at: string
@@ -43,14 +44,22 @@ export type Database = {
           img_t_url: string | null
           nome_mercado: string
           observacoes: string | null
+          overhead_image_url: string | null
+          overhead_prompt: string | null
+          paused_at_step: string | null
+          processing_status: string
           status: string
+          structural_analysis_json: Json
           updated_at: string
           user_id: string
+          user_revision_notes: string
           video_b_url: string | null
           video_c_url: string | null
           video_url: string | null
+          visual_identity_json: Json
         }
         Insert: {
+          approved_steps?: Json
           categorias?: Json | null
           cidade?: string
           created_at?: string
@@ -78,14 +87,22 @@ export type Database = {
           img_t_url?: string | null
           nome_mercado: string
           observacoes?: string | null
+          overhead_image_url?: string | null
+          overhead_prompt?: string | null
+          paused_at_step?: string | null
+          processing_status?: string
           status?: string
+          structural_analysis_json?: Json
           updated_at?: string
           user_id: string
+          user_revision_notes?: string
           video_b_url?: string | null
           video_c_url?: string | null
           video_url?: string | null
+          visual_identity_json?: Json
         }
         Update: {
+          approved_steps?: Json
           categorias?: Json | null
           cidade?: string
           created_at?: string
@@ -113,12 +130,19 @@ export type Database = {
           img_t_url?: string | null
           nome_mercado?: string
           observacoes?: string | null
+          overhead_image_url?: string | null
+          overhead_prompt?: string | null
+          paused_at_step?: string | null
+          processing_status?: string
           status?: string
+          structural_analysis_json?: Json
           updated_at?: string
           user_id?: string
+          user_revision_notes?: string
           video_b_url?: string | null
           video_c_url?: string | null
           video_url?: string | null
+          visual_identity_json?: Json
         }
         Relationships: []
       }
