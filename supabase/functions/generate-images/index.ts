@@ -387,7 +387,9 @@ function pushProjectContextRefs(
 ) {
   if (sceneType === "produto") return;
   pushMandatoryRef(urls, labels, refs.planta as string | undefined,
-    "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
+    sceneType === "interno"
+      ? "PLANTA BAIXA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA. A imagem interna DEVE nascer dela: entrada, caixas, gôndolas, corredores, setores, balcões, frios, câmaras, depósitos, banheiros e fluxo."
+      : "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
 
   const extras = normalizeExtraRefs(refs.extras);
   for (const [index, extra] of extras.slice(0, 3).entries()) {
