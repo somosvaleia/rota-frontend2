@@ -567,6 +567,33 @@ ESTILO: fotorrealismo extremo, iluminação comercial fluorescente branca, piso 
 CENA: ${scene}`;
 }
 
+function promptVistaSuperiorBase(nome: string, cidade: string, obs: string, structural: Record<string, unknown>, visual: Record<string, unknown>, summary = ""): string {
+  return `Renderização 3D FOTORREALISTA em VISTA SUPERIOR TOP-DOWN 90° do supermercado "${nome}" em ${cidade || "Brasil"}.
+
+OBJETIVO: gerar o MAPA VISUAL BASE para aprovação do usuário antes das demais cenas.
+
+OBSERVAÇÕES DO CLIENTE:
+${obs || "Sem observações adicionais."}
+
+ANÁLISE ESTRUTURAL OBRIGATÓRIA (PLANTA = ESTRUTURA):
+${JSON.stringify(structural, null, 2).substring(0, 10000)}
+
+ANÁLISE VISUAL OBRIGATÓRIA (IMAGENS = IDENTIDADE):
+${JSON.stringify(visual, null, 2).substring(0, 10000)}
+
+SÍNTESE MULTIMODAL:
+${summary}
+
+REGRAS ABSOLUTAS:
+1. A planta define layout, setores, fluxo, quantidades, proporções, entrada, caixas, corredores, gôndolas e áreas de apoio.
+2. As referências visuais definem materiais, cores, iluminação, comunicação visual, fachada, mobiliário, gôndolas e nível comercial.
+3. A logo define branding; se não houver logo, use a identidade visual sugerida pela fachada/referências.
+4. Não gerar imagem genérica, não desenhar blueprint, não mostrar cotas técnicas, não ignorar referências.
+5. A imagem deve parecer uma loja real vista de cima, com telhado/parcial corte arquitetônico coerente e leitura clara do interior.
+
+RESULTADO: uma vista superior realista, legível e aprovada como mapa base para todas as próximas imagens.`;
+}
+
 function promptProduto(nome: string, cidade: string, scene: string): string {
   return `Foto FOTORREALISTA de um item/acessório de supermercado brasileiro de bairro chamado "${nome}".
 
