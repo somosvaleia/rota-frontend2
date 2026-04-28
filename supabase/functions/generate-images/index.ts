@@ -291,19 +291,25 @@ async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome =
       role: "user",
       parts: [
         {
-          text: `Analise esta PLANTA BAIXA / implantação / foto satelital do projeto "${nome}" em ${cidade || "Brasil"}.
+          text: `Analise esta PLANTA BAIXA do projeto "${nome}" em ${cidade || "Brasil"} como documento arquitetônico principal para gerar imagens internas fotorrealistas.
 
-IMPORTANTE: a imagem é uma vista DE CIMA. Extraia restrições espaciais REAIS para construir um supermercado coerente em 3D. NÃO trate como textura ou fachada pronta.
+IMPORTANTE: a imagem é uma vista DE CIMA. Extraia restrições espaciais REAIS. A planta deve comandar a geração das cenas internas; não trate como textura, decoração ou fachada pronta.
 
-Responda em português, curto e objetivo, com estes tópicos:
-1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio/terreno
+Responda em português, objetivo, mas específico, com estes tópicos obrigatórios:
+1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio/terreno e orientação geral
 2. MEDIDAS E PROPORÇÕES OBRIGATÓRIAS — TODAS as medidas, cotas, larguras, comprimentos, módulos visíveis (copie números explicitamente)
-3. FRENTE DO MERCADO — lado da fachada/entrada principal
-4. ACESSOS E APOIOS — estacionamento, doca, recuos, circulação externa
-5. LAYOUT INTERNO OBRIGATÓRIO — entrada, caixas, corredores, setores, fundos, fluxo
-6. MAPA DE CONSTÂNCIA — o que precisa permanecer igual em fachada, entrada, corredores e vista superior
-7. ELEMENTOS QUE NÃO PODEM SER INVENTADOS
-8. INSTRUÇÃO FINAL — como transformar a vista superior em render 3D coerente
+3. ENTRADA / SAÍDA — posição da entrada principal, saída e sentido provável do fluxo
+4. CAIXAS / CHECKOUTS — quantidade real visível, posição exata e orientação
+5. GÔNDOLAS CENTRAIS — quantidade real de linhas/ilhas, orientação, comprimento proporcional e espaçamentos
+6. ILHAS PROMOCIONAIS / EXPOSITORES — quantidade e posição quando visíveis
+7. CORREDORES — corredores principais, secundários, largura relativa e direção de circulação
+8. SETORES LATERAIS — posição de padaria, açougue, frios, hortifrúti, congelados, balcões e expositores refrigerados
+9. ÁREAS DE APOIO — câmaras frias, estoque, depósito, administração, banheiros, escadas, doca e áreas técnicas
+10. MAPA INTERNO LÓGICO — descreva como se fosse um mapa: frente/fundos/esquerda/direita/centro e o que existe em cada área
+11. CENAS INTERNAS RECOMENDADAS — quais vistas devem ser geradas sem contradizer a planta
+12. ELEMENTOS QUE NÃO PODEM SER INVENTADOS — liste o que deve permanecer fiel
+13. INCERTEZAS — se algo não estiver claro, diga "não identificado" e sugira a solução comercial mais simples e coerente
+14. INSTRUÇÃO FINAL — como transformar a vista superior em render 3D interno coerente
 
 Se algo não estiver claro, diga "não identificado".`,
         },
