@@ -1,7 +1,7 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil } from "lucide-react";
+import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil, PauseCircle, CheckCircle2, RotateCw, Save } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import EditProjectDialog from "@/components/EditProjectDialog";
 import EditImageDialog from "@/components/EditImageDialog";
+import { Textarea } from "@/components/ui/textarea";
 
 const IMAGE_KEYS = [
   "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
@@ -54,6 +55,8 @@ export default function ProjectDetail() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingImage, setEditingImage] = useState<{ key: string; url: string; label: string } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [revisionNotes, setRevisionNotes] = useState("");
+  const [controlLoading, setControlLoading] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -65,7 +68,10 @@ export default function ProjectDetail() {
         .eq("id", id)
         .single();
 
-      if (!error && data) setProject(data);
+      if (!error && data) {
+        setProject(data);
+        setRevisionNotes((data as any).user_revision_notes || "");
+      }
       setLoading(false);
     };
 
@@ -98,6 +104,27 @@ export default function ProjectDetail() {
       alert("Erro ao excluir o projeto.");
       setDeleting(false);
       setShowDeleteDialog(false);
+    }
+  };
+
+  const runProcessingAction = async (action: "pause" | "continue" | "approve" | "regenerate_overhead") => {
+    if (!project) return;
+    setControlLoading(action);
+    try {
+      if (action === "pause") {
+        await supabase.from("projects").update({ processing_status: "paused", paused_at_step: project.processing_status || "manual", user_revision_notes: revisionNotes } as any).eq("id", project.id);
+      } else {
+        await supabase.from("projects").update({ user_revision_notes: revisionNotes } as any).eq("id", project.id);
+        const { error } = await supabase.functions.invoke("generate-images", {
+          body: { project_id: project.id, control_action: action, user_revision_notes: revisionNotes },
+        });
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error("Erro no controle de processamento:", err);
+      alert("Erro ao executar ação. Tente novamente.");
+    } finally {
+      setControlLoading(null);
     }
   };
 
