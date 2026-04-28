@@ -529,7 +529,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea.");
     }
     if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url" || s.key === "img_s_url")) {
-      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA — referência ABSOLUTA de constância. Mantenha mesmas cores, letreiro, paisagem externa e identidade arquitetônica.");
+      pushMandatoryRef(urls, labels, fachadaGerada, logo
+        ? "FACHADA JÁ GERADA — referência ABSOLUTA de constância. Mantenha mesmas cores, letreiro, paisagem externa e identidade arquitetônica."
+        : "FACHADA JÁ GERADA — NÃO HÁ LOGO ENVIADA. Use o letreiro, nome, cores e identidade criados na fachada como identidade visual obrigatória do interior.");
     }
     if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
       pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — preserve posição da porta, transição e fluxo inicial.");
@@ -561,7 +563,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     pushProjectContextRefs(urls, labels, refs, "interno");
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas.");
-    if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA — identidade visual continua igual.");
+    if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
+      ? "FACHADA JÁ GERADA — identidade visual continua igual."
+      : "FACHADA JÁ GERADA — NÃO HÁ LOGO ENVIADA. Use o letreiro, nome, cores e identidade criados na fachada como identidade visual obrigatória das gôndolas e placas internas.");
     if (entradaGerada) pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — continuidade do layout.");
     if (corredoresGerada) pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS — mesmo padrão espacial.");
     if (interiorGerado) pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — coerência do mesmo prédio.");
