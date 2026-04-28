@@ -291,19 +291,25 @@ async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome =
       role: "user",
       parts: [
         {
-          text: `Analise esta PLANTA BAIXA / implantação / foto satelital do projeto "${nome}" em ${cidade || "Brasil"}.
+          text: `Analise esta PLANTA BAIXA do projeto "${nome}" em ${cidade || "Brasil"} como documento arquitetônico principal para gerar imagens internas fotorrealistas.
 
-IMPORTANTE: a imagem é uma vista DE CIMA. Extraia restrições espaciais REAIS para construir um supermercado coerente em 3D. NÃO trate como textura ou fachada pronta.
+IMPORTANTE: a imagem é uma vista DE CIMA. Extraia restrições espaciais REAIS. A planta deve comandar a geração das cenas internas; não trate como textura, decoração ou fachada pronta.
 
-Responda em português, curto e objetivo, com estes tópicos:
-1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio/terreno
+Responda em português, objetivo, mas específico, com estes tópicos obrigatórios:
+1. FOOTPRINT OBRIGATÓRIO — formato exato do prédio/terreno e orientação geral
 2. MEDIDAS E PROPORÇÕES OBRIGATÓRIAS — TODAS as medidas, cotas, larguras, comprimentos, módulos visíveis (copie números explicitamente)
-3. FRENTE DO MERCADO — lado da fachada/entrada principal
-4. ACESSOS E APOIOS — estacionamento, doca, recuos, circulação externa
-5. LAYOUT INTERNO OBRIGATÓRIO — entrada, caixas, corredores, setores, fundos, fluxo
-6. MAPA DE CONSTÂNCIA — o que precisa permanecer igual em fachada, entrada, corredores e vista superior
-7. ELEMENTOS QUE NÃO PODEM SER INVENTADOS
-8. INSTRUÇÃO FINAL — como transformar a vista superior em render 3D coerente
+3. ENTRADA / SAÍDA — posição da entrada principal, saída e sentido provável do fluxo
+4. CAIXAS / CHECKOUTS — quantidade real visível, posição exata e orientação
+5. GÔNDOLAS CENTRAIS — quantidade real de linhas/ilhas, orientação, comprimento proporcional e espaçamentos
+6. ILHAS PROMOCIONAIS / EXPOSITORES — quantidade e posição quando visíveis
+7. CORREDORES — corredores principais, secundários, largura relativa e direção de circulação
+8. SETORES LATERAIS — posição de padaria, açougue, frios, hortifrúti, congelados, balcões e expositores refrigerados
+9. ÁREAS DE APOIO — câmaras frias, estoque, depósito, administração, banheiros, escadas, doca e áreas técnicas
+10. MAPA INTERNO LÓGICO — descreva como se fosse um mapa: frente/fundos/esquerda/direita/centro e o que existe em cada área
+11. CENAS INTERNAS RECOMENDADAS — quais vistas devem ser geradas sem contradizer a planta
+12. ELEMENTOS QUE NÃO PODEM SER INVENTADOS — liste o que deve permanecer fiel
+13. INCERTEZAS — se algo não estiver claro, diga "não identificado" e sugira a solução comercial mais simples e coerente
+14. INSTRUÇÃO FINAL — como transformar a vista superior em render 3D interno coerente
 
 Se algo não estiver claro, diga "não identificado".`,
         },
@@ -381,7 +387,9 @@ function pushProjectContextRefs(
 ) {
   if (sceneType === "produto") return;
   pushMandatoryRef(urls, labels, refs.planta as string | undefined,
-    "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
+    sceneType === "interno"
+      ? "PLANTA BAIXA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA. A imagem interna DEVE nascer dela: entrada, caixas, gôndolas, corredores, setores, balcões, frios, câmaras, depósitos, banheiros e fluxo."
+      : "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
 
   const extras = normalizeExtraRefs(refs.extras);
   for (const [index, extra] of extras.slice(0, 3).entries()) {
@@ -424,18 +432,24 @@ function promptInterno(nome: string, cidade: string, obs: string, scene: string,
 PROJETO: "${nome}" em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES: ${obs}` : ""}
 
-${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA (OBRIGATÓRIO):\n${plantaResumo}\n` : ""}
+${plantaResumo ? `MAPA INTERNO EXTRAÍDO DA PLANTA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA:\n${plantaResumo}\n` : ""}
 ${medidas ? `MEDIDAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR):\n${medidas}\n` : ""}
 
-REGRAS DE CONSTÂNCIA (OBRIGATÓRIO):
-1. LOGO define placas internas, sinalização e cores das gôndolas.
-2. PLANTA BAIXA define EXATAMENTE: largura/comprimento dos corredores, posição de cada seção (açougue, padaria, hortifruti, caixas), fluxo de circulação, disposição das gôndolas e áreas de serviço.
-3. Medidas numéricas = restrição VINCULANTE.
-4. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição.
-5. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
-6. Interior deve parecer materialização 3D do layout da planta.
+HIERARQUIA DE PRIORIDADE: FIDELIDADE À PLANTA > OBSERVAÇÕES DO CLIENTE > IDENTIDADE VISUAL > ESTÉTICA CRIATIVA.
 
-PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts. NÃO mostre planta desenhada na cena. NÃO ignore medidas.
+REGRAS DE CONSTÂNCIA ARQUITETÔNICA (OBRIGATÓRIO):
+1. A PLANTA BAIXA define EXATAMENTE: entrada, saída, quantidade e posição dos caixas, número de gôndolas centrais, ilhas promocionais, largura/comprimento dos corredores, direção de circulação, setores laterais e áreas de apoio.
+2. Cada cena deve representar uma área REAL detectada na planta; não gere ambiente genérico.
+3. Respeite posições relativas: frente/fundos/esquerda/direita/centro conforme o mapa interno extraído.
+4. Medidas numéricas, cotas e proporções = restrição VINCULANTE.
+5. Se algum setor não estiver claro, não invente estrutura complexa: use solução comercial simples, plausível e coerente com a planta.
+6. LOGO ou, se não houver logo, FACHADA JÁ GERADA define placas internas, sinalização, nome do mercado e cores das gôndolas.
+7. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição.
+8. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
+
+CHECKLIST OBRIGATÓRIO ANTES DE GERAR: confirme visualmente que a imagem respeita quantidade real de caixas, quantidade real de gôndolas, corredores, setores, fluxo interno, balcões, refrigerados, câmaras/estoques quando visíveis e escala proporcional.
+
+NEGATIVE PROMPT OBRIGATÓRIO: não alterar layout, não criar corredores extras, não mudar caixas de posição, não remover setores, não adicionar setores falsos, não distorcer proporções, não criar arquitetura inconsistente, não gerar maquete, não criar imagem genérica, não ignorar planta baixa, não mostrar linhas/cotas de blueprint na cena final.
 
 ESTILO: fotorrealismo extremo, iluminação comercial fluorescente branca, piso cerâmico claro.
 
@@ -466,6 +480,7 @@ interface SceneTask {
 }
 
 const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url"];
+const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...GONDOLA_KEYS]);
 
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
   const logo = refs.logo as string | undefined;
@@ -517,7 +532,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea.");
     }
     if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url" || s.key === "img_s_url")) {
-      pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA — referência ABSOLUTA de constância. Mantenha mesmas cores, letreiro, paisagem externa e identidade arquitetônica.");
+      pushMandatoryRef(urls, labels, fachadaGerada, logo
+        ? "FACHADA JÁ GERADA — referência ABSOLUTA de constância. Mantenha mesmas cores, letreiro, paisagem externa e identidade arquitetônica."
+        : "FACHADA JÁ GERADA — NÃO HÁ LOGO ENVIADA. Use o letreiro, nome, cores e identidade criados na fachada como identidade visual obrigatória do interior.");
     }
     if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
       pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — preserve posição da porta, transição e fluxo inicial.");
@@ -549,7 +566,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     pushProjectContextRefs(urls, labels, refs, "interno");
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas.");
-    if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, "FACHADA JÁ GERADA — identidade visual continua igual.");
+    if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
+      ? "FACHADA JÁ GERADA — identidade visual continua igual."
+      : "FACHADA JÁ GERADA — NÃO HÁ LOGO ENVIADA. Use o letreiro, nome, cores e identidade criados na fachada como identidade visual obrigatória das gôndolas e placas internas.");
     if (entradaGerada) pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — continuidade do layout.");
     if (corredoresGerada) pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS — mesmo padrão espacial.");
     if (interiorGerado) pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — coerência do mesmo prédio.");
@@ -671,6 +690,9 @@ Deno.serve(async (req) => {
       if (current) {
         console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
         try {
+          if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && !refsComFachada.planta) {
+            console.warn(`[INTERNO] ${current.sceneName} sem planta enviada; usando apenas referências disponíveis e observações.`);
+          }
           let base64 = await generateImageGemini(lovableKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
