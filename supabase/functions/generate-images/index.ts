@@ -690,6 +690,9 @@ Deno.serve(async (req) => {
       if (current) {
         console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
         try {
+          if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && !refsComFachada.planta) {
+            console.warn(`[INTERNO] ${current.sceneName} sem planta enviada; usando apenas referências disponíveis e observações.`);
+          }
           let base64 = await generateImageGemini(lovableKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
