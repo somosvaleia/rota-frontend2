@@ -1,7 +1,7 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil } from "lucide-react";
+import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil, PauseCircle, CheckCircle2, RotateCw, Save } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import EditProjectDialog from "@/components/EditProjectDialog";
 import EditImageDialog from "@/components/EditImageDialog";
+import { Textarea } from "@/components/ui/textarea";
 
 const IMAGE_KEYS = [
   "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
@@ -54,6 +55,8 @@ export default function ProjectDetail() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingImage, setEditingImage] = useState<{ key: string; url: string; label: string } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [revisionNotes, setRevisionNotes] = useState("");
+  const [controlLoading, setControlLoading] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -65,7 +68,10 @@ export default function ProjectDetail() {
         .eq("id", id)
         .single();
 
-      if (!error && data) setProject(data);
+      if (!error && data) {
+        setProject(data);
+        setRevisionNotes((data as any).user_revision_notes || "");
+      }
       setLoading(false);
     };
 
@@ -98,6 +104,27 @@ export default function ProjectDetail() {
       alert("Erro ao excluir o projeto.");
       setDeleting(false);
       setShowDeleteDialog(false);
+    }
+  };
+
+  const runProcessingAction = async (action: "pause" | "continue" | "approve" | "regenerate_overhead") => {
+    if (!project) return;
+    setControlLoading(action);
+    try {
+      if (action === "pause") {
+        await supabase.from("projects").update({ processing_status: "paused", paused_at_step: project.processing_status || "manual", user_revision_notes: revisionNotes } as any).eq("id", project.id);
+      } else {
+        await supabase.from("projects").update({ user_revision_notes: revisionNotes } as any).eq("id", project.id);
+        const { error } = await supabase.functions.invoke("generate-images", {
+          body: { project_id: project.id, control_action: action, user_revision_notes: revisionNotes },
+        });
+        if (error) throw error;
+      }
+    } catch (err) {
+      console.error("Erro no controle de processamento:", err);
+      alert("Erro ao executar ação. Tente novamente.");
+    } finally {
+      setControlLoading(null);
     }
   };
 
@@ -186,6 +213,52 @@ export default function ProjectDetail() {
             </Button>
           </div>
         </motion.div>
+
+        {project.processing_status && project.processing_status !== "completed" && (
+          <div className="glass-card rounded-xl p-4 sm:p-5 mb-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h2 className="font-display text-base font-semibold">Controle de processamento</h2>
+                <p className="text-sm text-muted-foreground">Etapa atual: {project.processing_status}</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" size="sm" className="gap-2" disabled={!!controlLoading || project.processing_status === "paused"} onClick={() => runProcessingAction("pause")}>
+                  {controlLoading === "pause" ? <Loader2 className="w-4 h-4 animate-spin" /> : <PauseCircle className="w-4 h-4" />}
+                  Pausar
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2" disabled={!!controlLoading} onClick={() => runProcessingAction("continue")}>
+                  {controlLoading === "continue" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                  Continuar
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2" disabled={!!controlLoading || project.processing_status !== "waiting_user_approval"} onClick={() => runProcessingAction("approve")}>
+                  {controlLoading === "approve" ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                  Aprovar etapa
+                </Button>
+                <Button variant="outline" size="sm" className="gap-2" disabled={!!controlLoading} onClick={() => runProcessingAction("regenerate_overhead")}>
+                  {controlLoading === "regenerate_overhead" ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCw className="w-4 h-4" />}
+                  Regenerar etapa
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">Editar observações da etapa</label>
+              <Textarea value={revisionNotes} onChange={(e) => setRevisionNotes(e.target.value)} rows={3} placeholder="Ajustes para a próxima geração ou regeneração..." />
+              <Button variant="ghost" size="sm" className="gap-2" disabled={!!controlLoading} onClick={() => runProcessingAction("pause")}>
+                <Save className="w-4 h-4" />
+                Salvar observações
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {project.overhead_image_url && (
+          <div className="space-y-4 sm:space-y-6 mb-8">
+            <h2 className="font-display text-base sm:text-lg font-semibold">Vista Superior Base</h2>
+            <div className="glass-card rounded-xl overflow-hidden cursor-pointer" onClick={() => setLightboxUrl(project.overhead_image_url)}>
+              <img src={project.overhead_image_url} alt="Vista superior base do projeto" className="w-full max-h-[520px] object-cover" />
+            </div>
+          </div>
+        )}
 
         {/* Images */}
         {images.length > 0 && (

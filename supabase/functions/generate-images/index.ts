@@ -215,7 +215,7 @@ async function generateImageGemini(
     : prompt;
 
   const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 30000) }];
-  const normalizedRefs = await Promise.all(refUrls.slice(0, 6).map((url) => urlToDataUrl(url)));
+  const normalizedRefs = await Promise.all(refUrls.slice(0, 10).map((url) => urlToDataUrl(url)));
 
   normalizedRefs.forEach((dataUrl, index) => {
     if (dataUrl) {
@@ -277,7 +277,118 @@ async function generateImageGemini(
   return null;
 }
 
-// ==================== ANÁLISE DE PLANTA (Gemini 2.5 Pro — API direta) ====================
+// ==================== ANÁLISE MULTIMODAL (Gemini 2.5 Pro — API direta) ====================
+
+function extractJsonObject(text: string): Record<string, unknown> {
+  try {
+    const clean = text.replace(/```json|```/gi, "").trim();
+    const start = clean.indexOf("{");
+    const end = clean.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(clean.slice(start, end + 1));
+  } catch (_e) {
+    // fallback abaixo
+  }
+  return { resumo: text };
+}
+
+function collectAssetRefs(refs: Record<string, any>): Array<{ key: string; label: string; url: string }> {
+  const base = [
+    ["planta", "Planta baixa — estrutura, fluxo, proporções e quantidades"],
+    ["logo", "Logo — branding, cores, tipografia e identidade"],
+    ["fachada_ref", "Fachada de referência — arquitetura externa e materiais"],
+    ["interno_ref", "Interior de referência — acabamento, mobiliário e iluminação"],
+    ["corredor_ref", "Corredores de referência — gôndolas, circulação e exposição"],
+    ["caixa_ref", "Caixa/checkout de referência — atendimento e comunicação visual"],
+    ["vista_superior_ref", "Vista superior de referência — leitura aérea e implantação"],
+  ] as const;
+  const items = base
+    .map(([key, label]) => ({ key, label, url: typeof refs[key] === "string" ? refs[key] : "" }))
+    .filter((item) => Boolean(item.url));
+  for (const extra of normalizeExtraRefs(refs.extras).slice(0, 4)) {
+    items.push({ key: "extra", label: `Referência extra — ${extra.label}`, url: extra.url });
+  }
+  return items;
+}
+
+async function analyzeProjectAssetsGemini(apiKey: string, refs: Record<string, any>, nome = "Mercado", cidade = "Brasil", obs = "", categorias: any[] = []): Promise<{ structural: Record<string, unknown>; visual: Record<string, unknown>; summary: string }> {
+  const assets = collectAssetRefs(refs);
+  const parts: Array<Record<string, unknown>> = [{
+    text: `Analise profundamente TODOS os materiais enviados para o projeto "${nome}" em ${cidade || "Brasil"}.
+
+OBSERVAÇÕES DO CLIENTE:
+${obs || "Sem observações adicionais."}
+
+CATEGORIAS/GÔNDOLAS:
+${JSON.stringify(categorias || []).substring(0, 6000)}
+
+REGRA CENTRAL:
+- PLANTA = estrutura, distribuição, fluxo, quantidade e proporções.
+- IMAGENS/LOGO/REFERÊNCIAS = identidade visual, materiais, mobiliário, acabamento, cores, comunicação, iluminação e nível comercial.
+
+Retorne APENAS um JSON válido com esta estrutura:
+{
+  "structural_analysis": {
+    "layout": "...",
+    "setores": [],
+    "fluxo": "...",
+    "medidas": [],
+    "quantidade_elementos": {},
+    "restricoes_obrigatorias": []
+  },
+  "visual_identity": {
+    "estilo_fachada": "...",
+    "estilo_interno": "...",
+    "cores_predominantes": [],
+    "materiais": [],
+    "iluminacao": "...",
+    "comunicacao_visual": "...",
+    "tipo_exposicao": "...",
+    "tipo_gondolas": "...",
+    "acabamento_comercial": "...",
+    "perfil": "premium | atacarejo | popular | bairro funcional"
+  },
+  "summary": "síntese objetiva para orientar prompts"
+}
+
+Não ignore nenhuma referência. Se algum item não existir, marque como "não enviado" e inferir somente o mínimo comercial coerente.`,
+  }];
+
+  const dataUrls = await Promise.all(assets.slice(0, 10).map((asset) => urlToDataUrl(asset.url)));
+  dataUrls.forEach((dataUrl, index) => {
+    const inline = dataUrl ? dataUrlToInlineData(dataUrl) : null;
+    if (inline) {
+      parts.push({ text: `Referência ${index + 1}: ${assets[index].label}` });
+      parts.push({ inlineData: inline });
+    }
+  });
+
+  const requestBody = JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { maxOutputTokens: 8192 } });
+
+  for (let i = 0; i < GEMINI_TEXT_MODELS.length; i++) {
+    const model = GEMINI_TEXT_MODELS[i];
+    try {
+      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody });
+      if (!res.ok) {
+        const errText = await res.text();
+        const shouldFallback = res.status === 404 || (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(errText));
+        if (shouldFallback && i < GEMINI_TEXT_MODELS.length - 1) continue;
+        return { structural: {}, visual: {}, summary: "" };
+      }
+      const data = await res.json();
+      logGeminiDiagnostics(`ASSETS/gemini:${model}`, data);
+      const text = extractGeminiText(data);
+      const parsed = extractJsonObject(text);
+      return {
+        structural: (parsed.structural_analysis as Record<string, unknown>) || { resumo: text },
+        visual: (parsed.visual_identity as Record<string, unknown>) || { resumo: text },
+        summary: typeof parsed.summary === "string" ? parsed.summary : text,
+      };
+    } catch (e) {
+      console.error(`[ASSETS] ${model} erro:`, getErrorMessage(e));
+    }
+  }
+  return { structural: {}, visual: {}, summary: "" };
+}
 
 async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome = "Mercado", cidade = "Brasil"): Promise<string> {
   if (!plantaUrl) return "";
@@ -456,6 +567,33 @@ ESTILO: fotorrealismo extremo, iluminação comercial fluorescente branca, piso 
 CENA: ${scene}`;
 }
 
+function promptVistaSuperiorBase(nome: string, cidade: string, obs: string, structural: Record<string, unknown>, visual: Record<string, unknown>, summary = ""): string {
+  return `Renderização 3D FOTORREALISTA em VISTA SUPERIOR TOP-DOWN 90° do supermercado "${nome}" em ${cidade || "Brasil"}.
+
+OBJETIVO: gerar o MAPA VISUAL BASE para aprovação do usuário antes das demais cenas.
+
+OBSERVAÇÕES DO CLIENTE:
+${obs || "Sem observações adicionais."}
+
+ANÁLISE ESTRUTURAL OBRIGATÓRIA (PLANTA = ESTRUTURA):
+${JSON.stringify(structural, null, 2).substring(0, 10000)}
+
+ANÁLISE VISUAL OBRIGATÓRIA (IMAGENS = IDENTIDADE):
+${JSON.stringify(visual, null, 2).substring(0, 10000)}
+
+SÍNTESE MULTIMODAL:
+${summary}
+
+REGRAS ABSOLUTAS:
+1. A planta define layout, setores, fluxo, quantidades, proporções, entrada, caixas, corredores, gôndolas e áreas de apoio.
+2. As referências visuais definem materiais, cores, iluminação, comunicação visual, fachada, mobiliário, gôndolas e nível comercial.
+3. A logo define branding; se não houver logo, use a identidade visual sugerida pela fachada/referências.
+4. Não gerar imagem genérica, não desenhar blueprint, não mostrar cotas técnicas, não ignorar referências.
+5. A imagem deve parecer uma loja real vista de cima, com telhado/parcial corte arquitetônico coerente e leitura clara do interior.
+
+RESULTADO: uma vista superior realista, legível e aprovada como mapa base para todas as próximas imagens.`;
+}
+
 function promptProduto(nome: string, cidade: string, scene: string): string {
   return `Foto FOTORREALISTA de um item/acessório de supermercado brasileiro de bairro chamado "${nome}".
 
@@ -482,7 +620,7 @@ interface SceneTask {
 const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url"];
 const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...GONDOLA_KEYS]);
 
-function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
+function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = "", structural: Record<string, unknown> = {}, visual: Record<string, unknown> = {}): SceneTask[] {
   const logo = refs.logo as string | undefined;
   const tasks: SceneTask[] = [];
 
@@ -550,8 +688,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     }
 
     let prompt: string;
-    if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo);
-    else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo);
+    const hybridContext = `\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`;
+    if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo) + hybridContext;
+    else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo) + hybridContext;
     else prompt = promptProduto(nome, cidade, s.scene);
     tasks.push({ imgKey: s.key, sceneName: s.name, prompt, refUrls: urls, refLabels: labels });
   }
@@ -583,7 +722,7 @@ ${c.observacao || ""}`;
     tasks.push({
       imgKey: GONDOLA_KEYS[i],
       sceneName: `Gôndola: ${c.name}`,
-      prompt: promptInterno(nome, cidade, obs, gondolaScene, plantaResumo),
+      prompt: promptInterno(nome, cidade, obs, gondolaScene, plantaResumo) + `\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`,
       refUrls: urls,
       refLabels: labels,
     });
@@ -637,7 +776,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { project_id, tipo, nome_mercado, cidade, observacoes, categorias, imagens, image_key, image_url, prompt: customPrompt, stage = "start", scene_offset = 0, floor_plan_summary = "" } = body;
+    const { project_id, tipo, nome_mercado, cidade, observacoes, categorias, imagens, image_key, image_url, prompt: customPrompt, stage = "start", scene_offset = 0, floor_plan_summary = "", control_action, user_revision_notes } = body;
 
     if (!project_id) {
       return new Response(JSON.stringify({ error: "project_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -649,6 +788,32 @@ Deno.serve(async (req) => {
     }
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    if (control_action === "pause") {
+      await sb.from("projects").update({ processing_status: "paused", paused_at_step: stage, updated_at: new Date().toISOString() }).eq("id", project_id);
+      return new Response(JSON.stringify({ success: true, processing_status: "paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (control_action === "approve" || control_action === "continue" || control_action === "regenerate_overhead") {
+      const { data: controlProject } = await sb.from("projects").select("paused_at_step").eq("id", project_id).single();
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (typeof user_revision_notes === "string") updates.user_revision_notes = user_revision_notes;
+      if (control_action === "approve") updates.approved_steps = ["overhead"];
+      if (control_action === "regenerate_overhead") {
+        updates.processing_status = "generating_overhead";
+        updates.overhead_image_url = null;
+        await sb.from("projects").update(updates).eq("id", project_id);
+        await invokeNextStage({ project_id, stage: "overhead", regenerate: true });
+        return new Response(JSON.stringify({ success: true, processing_status: "generating_overhead" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      updates.processing_status = "generating_scenes";
+      await sb.from("projects").update(updates).eq("id", project_id);
+      const resumeOffset = control_action === "continue"
+        ? Math.max(0, Number(String(controlProject?.paused_at_step || "").match(/^scene_(\d+)$/)?.[1] || 0))
+        : 0;
+      await invokeNextStage({ project_id, stage: "images", scene_offset: resumeOffset });
+      return new Response(JSON.stringify({ success: true, processing_status: "generating_scenes" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // ---- Edição individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
@@ -669,7 +834,12 @@ Deno.serve(async (req) => {
     const cidadeVal = cidade || project.cidade || "";
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
-    const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(lovableKey, refs.planta, nome, cidadeVal);
+    const existingStructural = (project.structural_analysis_json && Object.keys(project.structural_analysis_json).length > 0) ? project.structural_analysis_json : null;
+    const existingVisual = (project.visual_identity_json && Object.keys(project.visual_identity_json).length > 0) ? project.visual_identity_json : null;
+    const multimodal = existingStructural && existingVisual
+      ? { structural: existingStructural, visual: existingVisual, summary: floor_plan_summary || "" }
+      : await analyzeProjectAssetsGemini(lovableKey, refs, nome, cidadeVal, obsVal, catsVal);
+    const plantaResumo = floor_plan_summary || multimodal.summary || await analyzeFloorPlanGemini(lovableKey, refs.planta, nome, cidadeVal);
 
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
@@ -677,15 +847,35 @@ Deno.serve(async (req) => {
     if (project.img_c_url) refsComFachada.corredores_gerada = project.img_c_url;
     if (project.img_d_url) refsComFachada.interior_gerado = project.img_d_url;
     if (project.img_e_url) refsComFachada.vista_superior_gerada = project.img_e_url;
-    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo);
+    if (project.overhead_image_url) refsComFachada.vista_superior_gerada = project.overhead_image_url;
+    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo, multimodal.structural, multimodal.visual);
 
     if (stage === "start") {
-      await sb.from("projects").update({ status: "processando", updated_at: new Date().toISOString() }).eq("id", project_id);
+      await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", structural_analysis_json: multimodal.structural, visual_identity_json: multimodal.visual, updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!refs.logo}, planta=${!!refs.planta}`);
       if (plantaResumo) console.log(`[START] resumo planta ATIVO`);
+      await invokeNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo });
+      return new Response(JSON.stringify({ stage: "overhead" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    if (stage === "start" || stage === "images") {
+    if (stage === "overhead") {
+      await sb.from("projects").update({ processing_status: "generating_overhead", updated_at: new Date().toISOString() }).eq("id", project_id);
+      const overheadPrompt = promptVistaSuperiorBase(nome, cidadeVal, obsVal, multimodal.structural, multimodal.visual, plantaResumo);
+      const refUrls: string[] = [];
+      const refLabels: string[] = [];
+      for (const asset of collectAssetRefs(refs)) pushMandatoryRef(refUrls, refLabels, asset.url, asset.label);
+      let base64 = await generateImageGemini(lovableKey, overheadPrompt, refUrls, refLabels);
+      if (!base64) throw new Error("Falha ao gerar vista superior base");
+      base64 = await applyWatermark(base64);
+      const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
+      await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "waiting_user_approval", paused_at_step: "overhead", updated_at: new Date().toISOString() }).eq("id", project_id);
+      return new Response(JSON.stringify({ stage: "waiting_user_approval", overhead_image_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (stage === "images") {
+      const { data: gate } = await sb.from("projects").select("processing_status").eq("id", project_id).single();
+      if (gate?.processing_status === "paused") return new Response(JSON.stringify({ stage: "paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      await sb.from("projects").update({ processing_status: "generating_scenes", paused_at_step: `scene_${scene_offset}`, updated_at: new Date().toISOString() }).eq("id", project_id);
       const current = scenes[scene_offset];
       if (current) {
         console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
@@ -724,7 +914,7 @@ Deno.serve(async (req) => {
       const { data: final } = await sb.from("projects").select("*").eq("id", project_id).single();
       const count = IMAGE_KEYS.filter(k => Boolean(final?.[k])).length;
       const status = count > 0 ? "concluido" : "erro";
-      await sb.from("projects").update({ status, updated_at: new Date().toISOString() }).eq("id", project_id);
+      await sb.from("projects").update({ status, processing_status: count > 0 ? "completed" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`✓ Finalizado: ${status} (${count} imagens)`);
       return new Response(JSON.stringify({ status, images: count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
