@@ -795,6 +795,7 @@ Deno.serve(async (req) => {
     }
 
     if (control_action === "approve" || control_action === "continue" || control_action === "regenerate_overhead") {
+      const { data: controlProject } = await sb.from("projects").select("paused_at_step").eq("id", project_id).single();
       const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (typeof user_revision_notes === "string") updates.user_revision_notes = user_revision_notes;
       if (control_action === "approve") updates.approved_steps = ["overhead"];
@@ -807,7 +808,10 @@ Deno.serve(async (req) => {
       }
       updates.processing_status = "generating_scenes";
       await sb.from("projects").update(updates).eq("id", project_id);
-      await invokeNextStage({ project_id, stage: "images", scene_offset: 0 });
+      const resumeOffset = control_action === "continue"
+        ? Math.max(0, Number(String(controlProject?.paused_at_step || "").match(/^scene_(\d+)$/)?.[1] || 0))
+        : 0;
+      await invokeNextStage({ project_id, stage: "images", scene_offset: resumeOffset });
       return new Response(JSON.stringify({ success: true, processing_status: "generating_scenes" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
