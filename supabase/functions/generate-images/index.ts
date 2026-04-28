@@ -620,7 +620,7 @@ interface SceneTask {
 const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url"];
 const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...GONDOLA_KEYS]);
 
-function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = ""): SceneTask[] {
+function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = "", structural: Record<string, unknown> = {}, visual: Record<string, unknown> = {}): SceneTask[] {
   const logo = refs.logo as string | undefined;
   const tasks: SceneTask[] = [];
 
@@ -688,8 +688,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     }
 
     let prompt: string;
-    if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo);
-    else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo);
+    const hybridContext = `\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`;
+    if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo) + hybridContext;
+    else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo) + hybridContext;
     else prompt = promptProduto(nome, cidade, s.scene);
     tasks.push({ imgKey: s.key, sceneName: s.name, prompt, refUrls: urls, refLabels: labels });
   }
@@ -721,7 +722,7 @@ ${c.observacao || ""}`;
     tasks.push({
       imgKey: GONDOLA_KEYS[i],
       sceneName: `Gôndola: ${c.name}`,
-      prompt: promptInterno(nome, cidade, obs, gondolaScene, plantaResumo),
+      prompt: promptInterno(nome, cidade, obs, gondolaScene, plantaResumo) + `\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`,
       refUrls: urls,
       refLabels: labels,
     });
