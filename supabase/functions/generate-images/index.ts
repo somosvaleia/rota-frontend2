@@ -430,18 +430,24 @@ function promptInterno(nome: string, cidade: string, obs: string, scene: string,
 PROJETO: "${nome}" em ${cidade || "Brasil"}.
 ${obs ? `OBSERVAÇÕES: ${obs}` : ""}
 
-${plantaResumo ? `LEITURA ESTRUTURAL DA PLANTA (OBRIGATÓRIO):\n${plantaResumo}\n` : ""}
+${plantaResumo ? `MAPA INTERNO EXTRAÍDO DA PLANTA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA:\n${plantaResumo}\n` : ""}
 ${medidas ? `MEDIDAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR):\n${medidas}\n` : ""}
 
-REGRAS DE CONSTÂNCIA (OBRIGATÓRIO):
-1. LOGO define placas internas, sinalização e cores das gôndolas.
-2. PLANTA BAIXA define EXATAMENTE: largura/comprimento dos corredores, posição de cada seção (açougue, padaria, hortifruti, caixas), fluxo de circulação, disposição das gôndolas e áreas de serviço.
-3. Medidas numéricas = restrição VINCULANTE.
-4. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição.
-5. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
-6. Interior deve parecer materialização 3D do layout da planta.
+HIERARQUIA DE PRIORIDADE: FIDELIDADE À PLANTA > OBSERVAÇÕES DO CLIENTE > IDENTIDADE VISUAL > ESTÉTICA CRIATIVA.
 
-PROIBIÇÕES: NÃO use marcas estrangeiras. NÃO invente layouts. NÃO mostre planta desenhada na cena. NÃO ignore medidas.
+REGRAS DE CONSTÂNCIA ARQUITETÔNICA (OBRIGATÓRIO):
+1. A PLANTA BAIXA define EXATAMENTE: entrada, saída, quantidade e posição dos caixas, número de gôndolas centrais, ilhas promocionais, largura/comprimento dos corredores, direção de circulação, setores laterais e áreas de apoio.
+2. Cada cena deve representar uma área REAL detectada na planta; não gere ambiente genérico.
+3. Respeite posições relativas: frente/fundos/esquerda/direita/centro conforme o mapa interno extraído.
+4. Medidas numéricas, cotas e proporções = restrição VINCULANTE.
+5. Se algum setor não estiver claro, não invente estrutura complexa: use solução comercial simples, plausível e coerente com a planta.
+6. LOGO ou, se não houver logo, FACHADA JÁ GERADA define placas internas, sinalização, nome do mercado e cores das gôndolas.
+7. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição.
+8. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
+
+CHECKLIST OBRIGATÓRIO ANTES DE GERAR: confirme visualmente que a imagem respeita quantidade real de caixas, quantidade real de gôndolas, corredores, setores, fluxo interno, balcões, refrigerados, câmaras/estoques quando visíveis e escala proporcional.
+
+NEGATIVE PROMPT OBRIGATÓRIO: não alterar layout, não criar corredores extras, não mudar caixas de posição, não remover setores, não adicionar setores falsos, não distorcer proporções, não criar arquitetura inconsistente, não gerar maquete, não criar imagem genérica, não ignorar planta baixa, não mostrar linhas/cotas de blueprint na cena final.
 
 ESTILO: fotorrealismo extremo, iluminação comercial fluorescente branca, piso cerâmico claro.
 
