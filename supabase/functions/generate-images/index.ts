@@ -22,6 +22,7 @@ const GEMINI_TEXT_MODELS = [
 ];
 const MAX_REFERENCE_BYTES = 500_000;
 const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
+const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...GONDOLA_KEYS]);
 
 // ==================== WATERMARK ====================
 
