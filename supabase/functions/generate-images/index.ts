@@ -776,7 +776,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { project_id, tipo, nome_mercado, cidade, observacoes, categorias, imagens, image_key, image_url, prompt: customPrompt, stage = "start", scene_offset = 0, floor_plan_summary = "" } = body;
+    const { project_id, tipo, nome_mercado, cidade, observacoes, categorias, imagens, image_key, image_url, prompt: customPrompt, stage = "start", scene_offset = 0, floor_plan_summary = "", control_action, user_revision_notes } = body;
 
     if (!project_id) {
       return new Response(JSON.stringify({ error: "project_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -788,6 +788,28 @@ Deno.serve(async (req) => {
     }
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+    if (control_action === "pause") {
+      await sb.from("projects").update({ processing_status: "paused", paused_at_step: stage, updated_at: new Date().toISOString() }).eq("id", project_id);
+      return new Response(JSON.stringify({ success: true, processing_status: "paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (control_action === "approve" || control_action === "continue" || control_action === "regenerate_overhead") {
+      const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+      if (typeof user_revision_notes === "string") updates.user_revision_notes = user_revision_notes;
+      if (control_action === "approve") updates.approved_steps = ["overhead"];
+      if (control_action === "regenerate_overhead") {
+        updates.processing_status = "generating_overhead";
+        updates.overhead_image_url = null;
+        await sb.from("projects").update(updates).eq("id", project_id);
+        await invokeNextStage({ project_id, stage: "overhead", regenerate: true });
+        return new Response(JSON.stringify({ success: true, processing_status: "generating_overhead" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      updates.processing_status = "generating_scenes";
+      await sb.from("projects").update(updates).eq("id", project_id);
+      await invokeNextStage({ project_id, stage: "images", scene_offset: 0 });
+      return new Response(JSON.stringify({ success: true, processing_status: "generating_scenes" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // ---- Edição individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
@@ -808,7 +830,12 @@ Deno.serve(async (req) => {
     const cidadeVal = cidade || project.cidade || "";
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
-    const plantaResumo = floor_plan_summary || await analyzeFloorPlanGemini(lovableKey, refs.planta, nome, cidadeVal);
+    const existingStructural = (project.structural_analysis_json && Object.keys(project.structural_analysis_json).length > 0) ? project.structural_analysis_json : null;
+    const existingVisual = (project.visual_identity_json && Object.keys(project.visual_identity_json).length > 0) ? project.visual_identity_json : null;
+    const multimodal = existingStructural && existingVisual
+      ? { structural: existingStructural, visual: existingVisual, summary: floor_plan_summary || "" }
+      : await analyzeProjectAssetsGemini(lovableKey, refs, nome, cidadeVal, obsVal, catsVal);
+    const plantaResumo = floor_plan_summary || multimodal.summary || await analyzeFloorPlanGemini(lovableKey, refs.planta, nome, cidadeVal);
 
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
@@ -816,15 +843,35 @@ Deno.serve(async (req) => {
     if (project.img_c_url) refsComFachada.corredores_gerada = project.img_c_url;
     if (project.img_d_url) refsComFachada.interior_gerado = project.img_d_url;
     if (project.img_e_url) refsComFachada.vista_superior_gerada = project.img_e_url;
-    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo);
+    if (project.overhead_image_url) refsComFachada.vista_superior_gerada = project.overhead_image_url;
+    const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo, multimodal.structural, multimodal.visual);
 
     if (stage === "start") {
-      await sb.from("projects").update({ status: "processando", updated_at: new Date().toISOString() }).eq("id", project_id);
+      await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", structural_analysis_json: multimodal.structural, visual_identity_json: multimodal.visual, updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!refs.logo}, planta=${!!refs.planta}`);
       if (plantaResumo) console.log(`[START] resumo planta ATIVO`);
+      await invokeNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo });
+      return new Response(JSON.stringify({ stage: "overhead" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    if (stage === "start" || stage === "images") {
+    if (stage === "overhead") {
+      await sb.from("projects").update({ processing_status: "generating_overhead", updated_at: new Date().toISOString() }).eq("id", project_id);
+      const overheadPrompt = promptVistaSuperiorBase(nome, cidadeVal, obsVal, multimodal.structural, multimodal.visual, plantaResumo);
+      const refUrls: string[] = [];
+      const refLabels: string[] = [];
+      for (const asset of collectAssetRefs(refs)) pushMandatoryRef(refUrls, refLabels, asset.url, asset.label);
+      let base64 = await generateImageGemini(lovableKey, overheadPrompt, refUrls, refLabels);
+      if (!base64) throw new Error("Falha ao gerar vista superior base");
+      base64 = await applyWatermark(base64);
+      const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
+      await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "waiting_user_approval", paused_at_step: "overhead", updated_at: new Date().toISOString() }).eq("id", project_id);
+      return new Response(JSON.stringify({ stage: "waiting_user_approval", overhead_image_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (stage === "images") {
+      const { data: gate } = await sb.from("projects").select("processing_status").eq("id", project_id).single();
+      if (gate?.processing_status === "paused") return new Response(JSON.stringify({ stage: "paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      await sb.from("projects").update({ processing_status: "generating_scenes", paused_at_step: `scene_${scene_offset}`, updated_at: new Date().toISOString() }).eq("id", project_id);
       const current = scenes[scene_offset];
       if (current) {
         console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
@@ -863,7 +910,7 @@ Deno.serve(async (req) => {
       const { data: final } = await sb.from("projects").select("*").eq("id", project_id).single();
       const count = IMAGE_KEYS.filter(k => Boolean(final?.[k])).length;
       const status = count > 0 ? "concluido" : "erro";
-      await sb.from("projects").update({ status, updated_at: new Date().toISOString() }).eq("id", project_id);
+      await sb.from("projects").update({ status, processing_status: count > 0 ? "completed" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`✓ Finalizado: ${status} (${count} imagens)`);
       return new Response(JSON.stringify({ status, images: count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
