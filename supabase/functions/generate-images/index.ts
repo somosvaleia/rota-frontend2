@@ -215,7 +215,7 @@ async function generateImageGemini(
     : prompt;
 
   const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 30000) }];
-  const normalizedRefs = await Promise.all(refUrls.slice(0, 6).map((url) => urlToDataUrl(url)));
+  const normalizedRefs = await Promise.all(refUrls.slice(0, 10).map((url) => urlToDataUrl(url)));
 
   normalizedRefs.forEach((dataUrl, index) => {
     if (dataUrl) {
@@ -277,7 +277,118 @@ async function generateImageGemini(
   return null;
 }
 
-// ==================== ANÁLISE DE PLANTA (Gemini 2.5 Pro — API direta) ====================
+// ==================== ANÁLISE MULTIMODAL (Gemini 2.5 Pro — API direta) ====================
+
+function extractJsonObject(text: string): Record<string, unknown> {
+  try {
+    const clean = text.replace(/```json|```/gi, "").trim();
+    const start = clean.indexOf("{");
+    const end = clean.lastIndexOf("}");
+    if (start >= 0 && end > start) return JSON.parse(clean.slice(start, end + 1));
+  } catch (_e) {
+    // fallback abaixo
+  }
+  return { resumo: text };
+}
+
+function collectAssetRefs(refs: Record<string, any>): Array<{ key: string; label: string; url: string }> {
+  const base = [
+    ["planta", "Planta baixa — estrutura, fluxo, proporções e quantidades"],
+    ["logo", "Logo — branding, cores, tipografia e identidade"],
+    ["fachada_ref", "Fachada de referência — arquitetura externa e materiais"],
+    ["interno_ref", "Interior de referência — acabamento, mobiliário e iluminação"],
+    ["corredor_ref", "Corredores de referência — gôndolas, circulação e exposição"],
+    ["caixa_ref", "Caixa/checkout de referência — atendimento e comunicação visual"],
+    ["vista_superior_ref", "Vista superior de referência — leitura aérea e implantação"],
+  ] as const;
+  const items = base
+    .map(([key, label]) => ({ key, label, url: typeof refs[key] === "string" ? refs[key] : "" }))
+    .filter((item) => Boolean(item.url));
+  for (const extra of normalizeExtraRefs(refs.extras).slice(0, 4)) {
+    items.push({ key: "extra", label: `Referência extra — ${extra.label}`, url: extra.url });
+  }
+  return items;
+}
+
+async function analyzeProjectAssetsGemini(apiKey: string, refs: Record<string, any>, nome = "Mercado", cidade = "Brasil", obs = "", categorias: any[] = []): Promise<{ structural: Record<string, unknown>; visual: Record<string, unknown>; summary: string }> {
+  const assets = collectAssetRefs(refs);
+  const parts: Array<Record<string, unknown>> = [{
+    text: `Analise profundamente TODOS os materiais enviados para o projeto "${nome}" em ${cidade || "Brasil"}.
+
+OBSERVAÇÕES DO CLIENTE:
+${obs || "Sem observações adicionais."}
+
+CATEGORIAS/GÔNDOLAS:
+${JSON.stringify(categorias || []).substring(0, 6000)}
+
+REGRA CENTRAL:
+- PLANTA = estrutura, distribuição, fluxo, quantidade e proporções.
+- IMAGENS/LOGO/REFERÊNCIAS = identidade visual, materiais, mobiliário, acabamento, cores, comunicação, iluminação e nível comercial.
+
+Retorne APENAS um JSON válido com esta estrutura:
+{
+  "structural_analysis": {
+    "layout": "...",
+    "setores": [],
+    "fluxo": "...",
+    "medidas": [],
+    "quantidade_elementos": {},
+    "restricoes_obrigatorias": []
+  },
+  "visual_identity": {
+    "estilo_fachada": "...",
+    "estilo_interno": "...",
+    "cores_predominantes": [],
+    "materiais": [],
+    "iluminacao": "...",
+    "comunicacao_visual": "...",
+    "tipo_exposicao": "...",
+    "tipo_gondolas": "...",
+    "acabamento_comercial": "...",
+    "perfil": "premium | atacarejo | popular | bairro funcional"
+  },
+  "summary": "síntese objetiva para orientar prompts"
+}
+
+Não ignore nenhuma referência. Se algum item não existir, marque como "não enviado" e inferir somente o mínimo comercial coerente.`,
+  }];
+
+  const dataUrls = await Promise.all(assets.slice(0, 10).map((asset) => urlToDataUrl(asset.url)));
+  dataUrls.forEach((dataUrl, index) => {
+    const inline = dataUrl ? dataUrlToInlineData(dataUrl) : null;
+    if (inline) {
+      parts.push({ text: `Referência ${index + 1}: ${assets[index].label}` });
+      parts.push({ inlineData: inline });
+    }
+  });
+
+  const requestBody = JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { maxOutputTokens: 8192 } });
+
+  for (let i = 0; i < GEMINI_TEXT_MODELS.length; i++) {
+    const model = GEMINI_TEXT_MODELS[i];
+    try {
+      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody });
+      if (!res.ok) {
+        const errText = await res.text();
+        const shouldFallback = res.status === 404 || (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(errText));
+        if (shouldFallback && i < GEMINI_TEXT_MODELS.length - 1) continue;
+        return { structural: {}, visual: {}, summary: "" };
+      }
+      const data = await res.json();
+      logGeminiDiagnostics(`ASSETS/gemini:${model}`, data);
+      const text = extractGeminiText(data);
+      const parsed = extractJsonObject(text);
+      return {
+        structural: (parsed.structural_analysis as Record<string, unknown>) || { resumo: text },
+        visual: (parsed.visual_identity as Record<string, unknown>) || { resumo: text },
+        summary: typeof parsed.summary === "string" ? parsed.summary : text,
+      };
+    } catch (e) {
+      console.error(`[ASSETS] ${model} erro:`, getErrorMessage(e));
+    }
+  }
+  return { structural: {}, visual: {}, summary: "" };
+}
 
 async function analyzeFloorPlanGemini(apiKey: string, plantaUrl?: string, nome = "Mercado", cidade = "Brasil"): Promise<string> {
   if (!plantaUrl) return "";
