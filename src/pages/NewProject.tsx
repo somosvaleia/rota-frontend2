@@ -112,7 +112,8 @@ const handleSubmit = async () => {
         categorias: payload.categorias,
         imagens: payload.imagens,
         status: "processando",
-      })
+        processing_status: "uploaded",
+      } as any)
       .select()
       .single();
 
