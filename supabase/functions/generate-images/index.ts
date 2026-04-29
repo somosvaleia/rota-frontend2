@@ -573,15 +573,18 @@ ${medidas ? `MEDIDAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR):\n${medidas}\
 
 HIERARQUIA DE PRIORIDADE: FIDELIDADE À PLANTA > OBSERVAÇÕES DO CLIENTE > IDENTIDADE VISUAL > ESTÉTICA CRIATIVA.
 
+REGRA MESTRA: a imagem interna NÃO é livre. Ela deve ser uma câmera real colocada dentro da PLANTA/VISTA SUPERIOR BASE, como se o renderizador estivesse caminhando no mesmo layout aprovado.
+
 REGRAS DE CONSTÂNCIA ARQUITETÔNICA (OBRIGATÓRIO):
 1. A PLANTA BAIXA define EXATAMENTE: entrada, saída, quantidade e posição dos caixas, número de gôndolas centrais, ilhas promocionais, largura/comprimento dos corredores, direção de circulação, setores laterais e áreas de apoio.
 2. Cada cena deve representar uma área REAL detectada na planta; não gere ambiente genérico.
 3. Respeite posições relativas: frente/fundos/esquerda/direita/centro conforme o mapa interno extraído.
 4. Medidas numéricas, cotas e proporções = restrição VINCULANTE.
-5. Se algum setor não estiver claro, não invente estrutura complexa: use solução comercial simples, plausível e coerente com a planta.
-6. LOGO ou, se não houver logo, FACHADA JÁ GERADA define placas internas, sinalização, nome do mercado e cores das gôndolas.
-7. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição.
-8. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
+5. Se houver conflito entre referência estética e planta/base, a planta/base vence sempre.
+6. Se algum setor não estiver claro, não invente estrutura complexa: use solução comercial simples, plausível e coerente com a planta.
+7. LOGO ou, se não houver logo, FACHADA JÁ GERADA define placas internas, sinalização, nome do mercado e cores das gôndolas.
+8. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição sem mudar sua posição lógica na planta.
+9. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
 
 CHECKLIST OBRIGATÓRIO ANTES DE GERAR: confirme visualmente que a imagem respeita quantidade real de caixas, quantidade real de gôndolas, corredores, setores, fluxo interno, balcões, refrigerados, câmaras/estoques quando visíveis e escala proporcional.
 
@@ -654,6 +657,10 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const mkRefs = (_type: string, extra?: string): { urls: string[]; labels: string[] } => {
     const urls: string[] = [];
     const labels: string[] = [];
+    if (_type === "interno") {
+      pushMandatoryRef(urls, labels, refs.vista_superior_gerada as string | undefined, "VISTA SUPERIOR BASE / PLANTA VISUAL APROVADA — REFERÊNCIA Nº 1. Use como mapa obrigatório para posicionar câmera, caixas, corredores, gôndolas, setores, fundo e fluxo interno.");
+      pushMandatoryRef(urls, labels, refs.planta as string | undefined, "PLANTA BAIXA ORIGINAL — REFERÊNCIA ESTRUTURAL Nº 2. Confirme proporções, quantidades e posições antes de renderizar.");
+    }
     pushMandatoryRef(urls, labels, logo, "LOGO DO MERCADO — use estas cores, nome e símbolo em TODA a imagem");
     pushMandatoryRef(urls, labels, extra, "REFERÊNCIA VISUAL ADICIONAL — guia de estilo para esta cena");
     return { urls, labels };
@@ -685,7 +692,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
-    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.key !== "img_a_url");
+    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.key !== "img_a_url" && s.type !== "interno");
 
     pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais e linguagem arquitetônica.");
     if (s.type === "interno") {
@@ -732,7 +739,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       ? "REFERÊNCIA EXATA DA GÔNDOLA — copie FIELMENTE modelo, prateleiras e tipo de produtos"
       : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
-    pushProjectContextRefs(urls, labels, refs, "interno");
+    pushProjectContextRefs(urls, labels, refs, "interno", false);
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas.");
     if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
