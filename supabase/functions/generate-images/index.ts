@@ -628,9 +628,10 @@ function promptProduto(nome: string, cidade: string, scene: string): string {
   return `Foto FOTORREALISTA de um item/acessório de supermercado brasileiro de bairro chamado "${nome}".
 
 REGRAS:
-1. LOGO define cores exatas e nome/símbolo no item.
+1. LOGO define cores exatas e nome/símbolo no item. Se não houver logo enviada, use a identidade da FACHADA JÁ GERADA: nome do letreiro, cores e símbolo criado pela IA.
 2. Item SIMPLES e FUNCIONAL, típico de mercado de bairro brasileiro. NADA sofisticado.
 3. Fundo neutro (branco/cinza claro). Iluminação de estúdio.
+4. Produto inteiro dentro do quadro, HD horizontal 16:9, nítido, sem cortes e sem distorção.
 
 PROIBIÇÕES: NÃO invente cores. NÃO faça design premium. Item REAL de mercadinho.
 
@@ -662,6 +663,9 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       pushMandatoryRef(urls, labels, refs.planta as string | undefined, "PLANTA BAIXA ORIGINAL — REFERÊNCIA ESTRUTURAL Nº 2. Confirme proporções, quantidades e posições antes de renderizar.");
     }
     pushMandatoryRef(urls, labels, logo, "LOGO DO MERCADO — use estas cores, nome e símbolo em TODA a imagem");
+    if (_type === "produto" && !logo) {
+      pushMandatoryRef(urls, labels, refs.fachada_gerada as string | undefined, "FACHADA JÁ GERADA — como não há logo enviada, copie nome, cores e símbolo do letreiro para farda, sacola e carrinho.");
+    }
     pushMandatoryRef(urls, labels, extra, "REFERÊNCIA VISUAL ADICIONAL — guia de estilo para esta cena");
     return { urls, labels };
   };
@@ -680,12 +684,12 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const fixed = [
     { key: "img_a_url", name: "Fachada (Vista Frontal)", type: "externo", ref: "fachada_ref", scene: "VISTA FRONTAL OBRIGATÓRIA do supermercado. Renderização arquitetônica fotorrealista vista DE FRENTE (perpendicular à fachada, câmera na altura humana, sem distorção). Fachada principal centralizada e completa. Letreiro com nome e cores EXATOS da LOGO. Estacionamento e recuos conforme PLANTA. Vegetação típica de " + cidade + "." },
     { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área interna logo após a ENTRADA com frente de caixas visível. OBRIGATÓRIO: portas automáticas de vidro duplas ao fundo, mostrando ATRAVÉS DELAS A MESMA paisagem da FACHADA JÁ GERADA (mesma calçada, vegetação, estacionamento). Quantidade de checkouts conforme PLANTA. Sinalização nas cores da LOGO." },
-    { key: "img_c_url", name: "Corredores", type: "interno", ref: "corredor_ref", scene: "Corredor principal interno. Gôndolas dos dois lados com produtos brasileiros. Placas de seção nas cores da LOGO. Perspectiva central profunda." },
+    { key: "img_c_url", name: "Corredores Selecionados", type: "interno", ref: "corredor_ref", scene: "Corredor principal interno SELECIONADO a partir da planta. OBRIGATÓRIO: câmera posicionada dentro de um dos corredores reais do mapa, com a mesma largura, orientação, extensão e quantidade de gôndolas indicada pela planta/vista superior. Gôndolas dos dois lados com produtos brasileiros, placas de seção nas cores da identidade visual e perspectiva central profunda. Não criar corredor genérico fora do layout." },
     { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Área dos fundos: açougue, padaria e hortifruti conforme PLANTA. Balcões refrigerados. Comunicação visual nas cores da LOGO." },
-    { key: "img_t_url", name: "Vista Superior Final (Aérea)", type: "externo", ref: "vista_superior_ref", scene: "VISTA SUPERIOR OBRIGATÓRIA. Aérea perpendicular (drone DIRETAMENTE DE CIMA, top-down 90°). Footprint do prédio idêntico à PLANTA. Telhado, fachada e estacionamento devem corresponder EXATAMENTE à FACHADA JÁ GERADA. Entorno urbano de " + cidade + "." },
-    { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme: camiseta polo SIMPLES com LOGO bordada no peito esquerdo. Cores EXATAS da logo. Em manequim. Fundo neutro." },
-    { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES com LOGO impressa. Plástico branco ou cor da logo. Sacola comum de mercadinho. Fundo neutro." },
-    { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame). LOGO frontal. Detalhes na cor da logo. SIMPLES e funcional. Fundo neutro." },
+    { key: "img_t_url", name: "Vista Drone do Mercado Completo", type: "externo", ref: "vista_superior_ref", scene: "VISTA DRONE OBRIGATÓRIA DO MERCADO COMPLETO. Imagem aérea realista de drone mostrando TODO o mercado da planta baixa em uma única composição: prédio inteiro, telhado, fachada, acessos, estacionamento, laterais, fundos, calçadas e entorno. Ângulo drone alto 3/4 levemente inclinado, NÃO blueprint, NÃO planta técnica. Footprint do prédio idêntico à PLANTA; fachada, materiais e letreiro correspondem EXATAMENTE à FACHADA JÁ GERADA. Tudo deve caber no quadro 16:9 HD sem cortar o prédio, estacionamento ou laterais. Entorno urbano de " + cidade + "." },
+    { key: "img_f_url", name: "Fardamento", type: "produto", ref: "", scene: "Modelo de fardamento completo: camiseta polo SIMPLES e calça/avental básico de mercado, com logo ou identidade da fachada bordada no peito esquerdo. Cores EXATAS da identidade visual. Em manequim ou pessoa de frente, corpo inteiro visível. Fundo neutro." },
+    { key: "img_g_url", name: "Sacola de Mercado", type: "produto", ref: "", scene: "Sacola plástica de mercado SIMPLES como era no escopo original, com logo ou identidade da fachada impressa em destaque. Plástico branco ou na cor principal da marca, alças visíveis, sacola comum de mercadinho brasileiro. Fundo neutro." },
+    { key: "img_h_url", name: "Carrinho de Mercado", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame), simples e funcional, com placa frontal contendo logo ou identidade da fachada. Detalhes na cor da marca, carrinho inteiro visível, fundo neutro." },
     { key: "img_s_url", name: "Vista Lateral", type: "externo", ref: "", scene: "VISTA LATERAL OBRIGATÓRIA. Renderização vista DE LADO (perpendicular à lateral). Comprimento total do prédio, alturas e recuos visíveis. Cores, materiais e telhado EXATAMENTE iguais à FACHADA JÁ GERADA e VISTA SUPERIOR. Comprimento conforme PLANTA." },
   ];
 
