@@ -675,7 +675,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área interna logo após a ENTRADA com frente de caixas visível. OBRIGATÓRIO: portas automáticas de vidro duplas ao fundo, mostrando ATRAVÉS DELAS A MESMA paisagem da FACHADA JÁ GERADA (mesma calçada, vegetação, estacionamento). Quantidade de checkouts conforme PLANTA. Sinalização nas cores da LOGO." },
     { key: "img_c_url", name: "Corredores", type: "interno", ref: "corredor_ref", scene: "Corredor principal interno. Gôndolas dos dois lados com produtos brasileiros. Placas de seção nas cores da LOGO. Perspectiva central profunda." },
     { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Área dos fundos: açougue, padaria e hortifruti conforme PLANTA. Balcões refrigerados. Comunicação visual nas cores da LOGO." },
-    { key: "img_e_url", name: "Vista Superior (Aérea)", type: "externo", ref: "vista_superior_ref", scene: "VISTA SUPERIOR OBRIGATÓRIA. Aérea perpendicular (drone DIRETAMENTE DE CIMA, top-down 90°). Footprint do prédio idêntico à PLANTA. Telhado, fachada e estacionamento devem corresponder EXATAMENTE à FACHADA JÁ GERADA. Entorno urbano de " + cidade + "." },
+    { key: "img_t_url", name: "Vista Superior Final (Aérea)", type: "externo", ref: "vista_superior_ref", scene: "VISTA SUPERIOR OBRIGATÓRIA. Aérea perpendicular (drone DIRETAMENTE DE CIMA, top-down 90°). Footprint do prédio idêntico à PLANTA. Telhado, fachada e estacionamento devem corresponder EXATAMENTE à FACHADA JÁ GERADA. Entorno urbano de " + cidade + "." },
     { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme: camiseta polo SIMPLES com LOGO bordada no peito esquerdo. Cores EXATAS da logo. Em manequim. Fundo neutro." },
     { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES com LOGO impressa. Plástico branco ou cor da logo. Sacola comum de mercadinho. Fundo neutro." },
     { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame). LOGO frontal. Detalhes na cor da logo. SIMPLES e funcional. Fundo neutro." },
@@ -685,7 +685,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
-    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto");
+    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.key !== "img_a_url");
 
     pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais e linguagem arquitetônica.");
     if (s.type === "interno") {
@@ -693,21 +693,21 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — preserve circulação e ritmo das gôndolas.");
       pushMandatoryRef(urls, labels, caixaRef, "REFERÊNCIA DE CAIXAS ENVIADA — preserve padrão da entrada/caixas.");
     }
-    if (s.key === "img_e_url") {
+    if (s.key === "img_t_url") {
       pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea.");
     }
-    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url" || s.key === "img_s_url")) {
+    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_t_url" || s.key === "img_s_url")) {
       pushMandatoryRef(urls, labels, fachadaGerada, logo
         ? "FACHADA JÁ GERADA — referência ABSOLUTA de constância. Mantenha mesmas cores, letreiro, paisagem externa e identidade arquitetônica."
         : "FACHADA JÁ GERADA — NÃO HÁ LOGO ENVIADA. Use o letreiro, nome, cores e identidade criados na fachada como identidade visual obrigatória do interior.");
     }
-    if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
+    if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_t_url")) {
       pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — preserve posição da porta, transição e fluxo inicial.");
     }
-    if (corredoresGerada && (s.key === "img_d_url" || s.key === "img_e_url")) {
+    if (corredoresGerada && (s.key === "img_d_url" || s.key === "img_t_url")) {
       pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS — continuidade obrigatória do layout interno.");
     }
-    if (interiorGerado && s.key === "img_e_url") {
+    if (interiorGerado && s.key === "img_t_url") {
       pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — vista aérea representa o MESMO edifício.");
     }
     if (vistaSuperiorGerada && s.type !== "produto") {
