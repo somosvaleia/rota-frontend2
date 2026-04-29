@@ -573,15 +573,18 @@ ${medidas ? `MEDIDAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR):\n${medidas}\
 
 HIERARQUIA DE PRIORIDADE: FIDELIDADE À PLANTA > OBSERVAÇÕES DO CLIENTE > IDENTIDADE VISUAL > ESTÉTICA CRIATIVA.
 
+REGRA MESTRA: a imagem interna NÃO é livre. Ela deve ser uma câmera real colocada dentro da PLANTA/VISTA SUPERIOR BASE, como se o renderizador estivesse caminhando no mesmo layout aprovado.
+
 REGRAS DE CONSTÂNCIA ARQUITETÔNICA (OBRIGATÓRIO):
 1. A PLANTA BAIXA define EXATAMENTE: entrada, saída, quantidade e posição dos caixas, número de gôndolas centrais, ilhas promocionais, largura/comprimento dos corredores, direção de circulação, setores laterais e áreas de apoio.
 2. Cada cena deve representar uma área REAL detectada na planta; não gere ambiente genérico.
 3. Respeite posições relativas: frente/fundos/esquerda/direita/centro conforme o mapa interno extraído.
 4. Medidas numéricas, cotas e proporções = restrição VINCULANTE.
-5. Se algum setor não estiver claro, não invente estrutura complexa: use solução comercial simples, plausível e coerente com a planta.
-6. LOGO ou, se não houver logo, FACHADA JÁ GERADA define placas internas, sinalização, nome do mercado e cores das gôndolas.
-7. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição.
-8. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
+5. Se houver conflito entre referência estética e planta/base, a planta/base vence sempre.
+6. Se algum setor não estiver claro, não invente estrutura complexa: use solução comercial simples, plausível e coerente com a planta.
+7. LOGO ou, se não houver logo, FACHADA JÁ GERADA define placas internas, sinalização, nome do mercado e cores das gôndolas.
+8. Se houver referência de gôndola, COPIE FIELMENTE modelo, prateleiras e disposição sem mudar sua posição lógica na planta.
+9. Produtos brasileiros REAIS de marcas conhecidas (Nestlé, Sadia, Perdigão, Ypê, OMO).
 
 CHECKLIST OBRIGATÓRIO ANTES DE GERAR: confirme visualmente que a imagem respeita quantidade real de caixas, quantidade real de gôndolas, corredores, setores, fluxo interno, balcões, refrigerados, câmaras/estoques quando visíveis e escala proporcional.
 
