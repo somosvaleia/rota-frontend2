@@ -64,6 +64,26 @@ function resizeToFit(source: Image, maxDimension: number): Image {
   return copy;
 }
 
+async function normalizeToHd(base64Url: string, targetWidth = 1920, targetHeight = 1080): Promise<string> {
+  try {
+    const b64 = base64Url.replace(/^data:image\/\w+;base64,/, "");
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const img = await Image.decode(bytes);
+    const scale = Math.min(targetWidth / img.width, targetHeight / img.height);
+    const resized = img.clone();
+    resized.resize(Math.max(1, Math.round(img.width * scale)), Math.max(1, Math.round(img.height * scale)));
+
+    const canvas = new Image(targetWidth, targetHeight);
+    canvas.fill(0xf3f4f0ff);
+    canvas.composite(resized, Math.round((targetWidth - resized.width) / 2), Math.round((targetHeight - resized.height) / 2));
+    const outBytes = await canvas.encode(1);
+    return `data:image/png;base64,${bytesToBase64(outBytes)}`;
+  } catch (e) {
+    console.error("[HD] normalizar:", e instanceof Error ? e.message : String(e));
+    return base64Url;
+  }
+}
+
 async function optimizeImageDataUrl(bytes: Uint8Array, maxBytes = MAX_REFERENCE_BYTES): Promise<string | null> {
   try {
     const decoded = await Image.decode(bytes);
