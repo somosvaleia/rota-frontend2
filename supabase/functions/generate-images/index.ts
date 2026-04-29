@@ -657,6 +657,10 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   const mkRefs = (_type: string, extra?: string): { urls: string[]; labels: string[] } => {
     const urls: string[] = [];
     const labels: string[] = [];
+    if (_type === "interno") {
+      pushMandatoryRef(urls, labels, refs.vista_superior_gerada as string | undefined, "VISTA SUPERIOR BASE / PLANTA VISUAL APROVADA — REFERÊNCIA Nº 1. Use como mapa obrigatório para posicionar câmera, caixas, corredores, gôndolas, setores, fundo e fluxo interno.");
+      pushMandatoryRef(urls, labels, refs.planta as string | undefined, "PLANTA BAIXA ORIGINAL — REFERÊNCIA ESTRUTURAL Nº 2. Confirme proporções, quantidades e posições antes de renderizar.");
+    }
     pushMandatoryRef(urls, labels, logo, "LOGO DO MERCADO — use estas cores, nome e símbolo em TODA a imagem");
     pushMandatoryRef(urls, labels, extra, "REFERÊNCIA VISUAL ADICIONAL — guia de estilo para esta cena");
     return { urls, labels };
@@ -688,7 +692,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
-    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.key !== "img_a_url");
+    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.key !== "img_a_url" && s.type !== "interno");
 
     pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais e linguagem arquitetônica.");
     if (s.type === "interno") {
@@ -735,7 +739,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       ? "REFERÊNCIA EXATA DA GÔNDOLA — copie FIELMENTE modelo, prateleiras e tipo de produtos"
       : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
-    pushProjectContextRefs(urls, labels, refs, "interno");
+    pushProjectContextRefs(urls, labels, refs, "interno", false);
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas.");
     if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
