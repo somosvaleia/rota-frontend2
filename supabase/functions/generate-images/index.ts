@@ -683,8 +683,11 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     if (interiorGerado && s.key === "img_e_url") {
       pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — vista aérea representa o MESMO edifício.");
     }
-    if (vistaSuperiorGerada && s.key === "img_s_url") {
-      pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR JÁ GERADA — referência ABSOLUTA do footprint. Lateral deve corresponder EXATAMENTE.");
+    if (vistaSuperiorGerada && s.type !== "produto") {
+      pushMandatoryRef(urls, labels, vistaSuperiorGerada,
+        s.type === "interno"
+          ? "VISTA SUPERIOR BASE JÁ GERADA — MAPA APROVADO DO LAYOUT. Esta cena interna deve ser uma expansão realista desse mesmo mapa: mesma entrada, caixas, corredores, gôndolas, setores e fluxo."
+          : "VISTA SUPERIOR BASE JÁ GERADA — referência ABSOLUTA do footprint, implantação, entrada, estacionamento e proporções. A cena externa deve corresponder EXATAMENTE.");
     }
 
     let prompt: string;
@@ -711,6 +714,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     if (entradaGerada) pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — continuidade do layout.");
     if (corredoresGerada) pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS — mesmo padrão espacial.");
     if (interiorGerado) pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — coerência do mesmo prédio.");
+    if (vistaSuperiorGerada) pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR BASE JÁ GERADA — MAPA APROVADO DO LAYOUT. Esta gôndola deve pertencer ao mesmo supermercado, na mesma lógica de corredores, setores, caixas e fluxo.");
     if (c.refImage && gondolaRefLabel && labels.length > 0) labels[labels.length - 1] = gondolaRefLabel;
 
     const gondolaScene = `Gôndola/seção de "${c.name}" com EXATAMENTE ${c.prateleiras || 3} prateleiras visíveis.
@@ -854,8 +858,8 @@ Deno.serve(async (req) => {
       await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", structural_analysis_json: multimodal.structural, visual_identity_json: multimodal.visual, updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!refs.logo}, planta=${!!refs.planta}`);
       if (plantaResumo) console.log(`[START] resumo planta ATIVO`);
-      await invokeNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo });
-      return new Response(JSON.stringify({ stage: "overhead" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      await invokeNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo, auto_continue: true });
+      return new Response(JSON.stringify({ stage: "overhead", auto_continue: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (stage === "overhead") {
@@ -868,6 +872,11 @@ Deno.serve(async (req) => {
       if (!base64) throw new Error("Falha ao gerar vista superior base");
       base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
+      if (body.auto_continue === true) {
+        await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "generating_scenes", approved_steps: ["overhead_auto"], paused_at_step: "scene_0", updated_at: new Date().toISOString() }).eq("id", project_id);
+        await invokeNextStage({ project_id, stage: "images", scene_offset: 0, floor_plan_summary: plantaResumo });
+        return new Response(JSON.stringify({ stage: "images", overhead_image_url: url, auto_continue: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "waiting_user_approval", paused_at_step: "overhead", updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ stage: "waiting_user_approval", overhead_image_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
