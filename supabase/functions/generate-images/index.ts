@@ -650,6 +650,7 @@ interface SceneTask {
 
 const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url"];
 const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...GONDOLA_KEYS]);
+const MIN_SCENE_TASKS = 10; // + img_e_url/overhead = mínimo real de 10+ imagens no projeto
 
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = "", structural: Record<string, unknown> = {}, visual: Record<string, unknown> = {}): SceneTask[] {
   const logo = refs.logo as string | undefined;
@@ -765,6 +766,35 @@ ${c.observacao || ""}`;
       imgKey: GONDOLA_KEYS[i],
       sceneName: `Gôndola: ${c.name}`,
       prompt: promptInterno(nome, cidade, obs, gondolaScene, plantaResumo) + `\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`,
+      refUrls: urls,
+      refLabels: labels,
+    });
+  }
+
+  const usedKeys = new Set(tasks.map((task) => task.imgKey));
+  const fallbackInternalScenes = [
+    { name: "Corredor Secundário", scene: "Corredor secundário REAL selecionado da planta/vista superior, diferente do corredor principal. Mostrar a continuidade das gôndolas, largura correta do corredor, produtos brasileiros e sinalização da identidade visual. Deve pertencer exatamente ao mesmo layout aprovado." },
+    { name: "Setor Promocional", scene: "Ilha promocional ou ponta de gôndola localizada conforme a planta/vista superior. Mostrar circulação ao redor, gôndolas próximas e proporções reais do mercado, sem inventar setor fora do mapa." },
+    { name: "Fluxo Entrada-Corredores", scene: "Vista interna conectando entrada, caixas e início dos corredores conforme a planta. A câmera deve mostrar o fluxo real do cliente entrando no mercado, sem mudar a posição dos caixas nem das gôndolas." },
+  ];
+
+  for (const fallback of fallbackInternalScenes) {
+    if (tasks.length >= MIN_SCENE_TASKS) break;
+    const key = GONDOLA_KEYS.find((candidate) => !usedKeys.has(candidate));
+    if (!key) break;
+    usedKeys.add(key);
+    const { urls, labels } = mkRefs("interno", corredorRef || internoRef);
+    pushProjectContextRefs(urls, labels, refs, "interno", false);
+    pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
+    pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha circulação e ritmo das gôndolas.");
+    if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
+      ? "FACHADA JÁ GERADA — identidade visual continua igual."
+      : "FACHADA JÁ GERADA — NÃO HÁ LOGO ENVIADA. Use o letreiro, nome, cores e identidade criados na fachada como identidade visual interna.");
+    if (vistaSuperiorGerada) pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR BASE JÁ GERADA — mapa obrigatório para escolher e posicionar esta cena extra.");
+    tasks.push({
+      imgKey: key,
+      sceneName: fallback.name,
+      prompt: promptInterno(nome, cidade, obs, fallback.scene, plantaResumo) + `\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nEsta cena existe para garantir o escopo mínimo de 10 imagens e deve ser uma área real da planta, não uma imagem genérica.`,
       refUrls: urls,
       refLabels: labels,
     });
