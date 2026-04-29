@@ -858,8 +858,8 @@ Deno.serve(async (req) => {
       await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", structural_analysis_json: multimodal.structural, visual_identity_json: multimodal.visual, updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!refs.logo}, planta=${!!refs.planta}`);
       if (plantaResumo) console.log(`[START] resumo planta ATIVO`);
-      await invokeNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo });
-      return new Response(JSON.stringify({ stage: "overhead" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      await invokeNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo, auto_continue: true });
+      return new Response(JSON.stringify({ stage: "overhead", auto_continue: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (stage === "overhead") {
@@ -872,6 +872,11 @@ Deno.serve(async (req) => {
       if (!base64) throw new Error("Falha ao gerar vista superior base");
       base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
+      if (body.auto_continue === true) {
+        await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "generating_scenes", approved_steps: ["overhead_auto"], paused_at_step: "scene_0", updated_at: new Date().toISOString() }).eq("id", project_id);
+        await invokeNextStage({ project_id, stage: "images", scene_offset: 0, floor_plan_summary: plantaResumo });
+        return new Response(JSON.stringify({ stage: "images", overhead_image_url: url, auto_continue: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "waiting_user_approval", paused_at_step: "overhead", updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ stage: "waiting_user_approval", overhead_image_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
