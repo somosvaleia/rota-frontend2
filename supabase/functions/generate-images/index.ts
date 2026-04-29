@@ -515,12 +515,15 @@ function pushProjectContextRefs(
   labels: string[],
   refs: Record<string, any>,
   sceneType: "externo" | "interno" | "produto",
+  includeFloorPlan = true,
 ) {
   if (sceneType === "produto") return;
-  pushMandatoryRef(urls, labels, refs.planta as string | undefined,
-    sceneType === "interno"
-      ? "PLANTA BAIXA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA. A imagem interna DEVE nascer dela: entrada, caixas, gôndolas, corredores, setores, balcões, frios, câmaras, depósitos, banheiros e fluxo."
-      : "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
+  if (includeFloorPlan) {
+    pushMandatoryRef(urls, labels, refs.planta as string | undefined,
+      sceneType === "interno"
+        ? "PLANTA BAIXA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA. A imagem interna DEVE nascer dela: entrada, caixas, gôndolas, corredores, setores, balcões, frios, câmaras, depósitos, banheiros e fluxo."
+        : "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
+  }
 
   const extras = normalizeExtraRefs(refs.extras);
   for (const [index, extra] of extras.slice(0, 3).entries()) {
@@ -553,6 +556,8 @@ PROIBIÇÕES: NÃO desenhe linhas de blueprint, cotas ou textos técnicos. NÃO 
 
 ESTILO: fotorrealismo extremo, qualidade de foto profissional de arquitetura, iluminação natural.
 
+FORMATO OBRIGATÓRIO: imagem horizontal 16:9 em HD, composição inteira dentro do quadro, sem cortar fachada, telhado, laterais, estacionamento ou letreiro. Fotografia realista, não ilustração, não maquete, não blueprint.
+
 CENA: ${scene}`;
 }
 
@@ -583,6 +588,8 @@ CHECKLIST OBRIGATÓRIO ANTES DE GERAR: confirme visualmente que a imagem respeit
 NEGATIVE PROMPT OBRIGATÓRIO: não alterar layout, não criar corredores extras, não mudar caixas de posição, não remover setores, não adicionar setores falsos, não distorcer proporções, não criar arquitetura inconsistente, não gerar maquete, não criar imagem genérica, não ignorar planta baixa, não mostrar linhas/cotas de blueprint na cena final.
 
 ESTILO: fotorrealismo extremo, iluminação comercial fluorescente branca, piso cerâmico claro.
+
+FORMATO OBRIGATÓRIO: imagem horizontal 16:9 em HD, câmera realista na altura humana, cena inteira dentro do quadro, sem cortar corredores, gôndolas, placas, caixas ou balcões. Fotografia realista, não maquete, não blueprint.
 
 CENA: ${scene}`;
 }
