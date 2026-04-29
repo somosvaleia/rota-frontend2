@@ -683,8 +683,11 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     if (interiorGerado && s.key === "img_e_url") {
       pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — vista aérea representa o MESMO edifício.");
     }
-    if (vistaSuperiorGerada && s.key === "img_s_url") {
-      pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR JÁ GERADA — referência ABSOLUTA do footprint. Lateral deve corresponder EXATAMENTE.");
+    if (vistaSuperiorGerada && s.type !== "produto") {
+      pushMandatoryRef(urls, labels, vistaSuperiorGerada,
+        s.type === "interno"
+          ? "VISTA SUPERIOR BASE JÁ GERADA — MAPA APROVADO DO LAYOUT. Esta cena interna deve ser uma expansão realista desse mesmo mapa: mesma entrada, caixas, corredores, gôndolas, setores e fluxo."
+          : "VISTA SUPERIOR BASE JÁ GERADA — referência ABSOLUTA do footprint, implantação, entrada, estacionamento e proporções. A cena externa deve corresponder EXATAMENTE.");
     }
 
     let prompt: string;
@@ -711,6 +714,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     if (entradaGerada) pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — continuidade do layout.");
     if (corredoresGerada) pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS — mesmo padrão espacial.");
     if (interiorGerado) pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — coerência do mesmo prédio.");
+    if (vistaSuperiorGerada) pushMandatoryRef(urls, labels, vistaSuperiorGerada, "VISTA SUPERIOR BASE JÁ GERADA — MAPA APROVADO DO LAYOUT. Esta gôndola deve pertencer ao mesmo supermercado, na mesma lógica de corredores, setores, caixas e fluxo.");
     if (c.refImage && gondolaRefLabel && labels.length > 0) labels[labels.length - 1] = gondolaRefLabel;
 
     const gondolaScene = `Gôndola/seção de "${c.name}" com EXATAMENTE ${c.prateleiras || 3} prateleiras visíveis.
