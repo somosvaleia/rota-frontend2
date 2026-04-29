@@ -64,6 +64,26 @@ function resizeToFit(source: Image, maxDimension: number): Image {
   return copy;
 }
 
+async function normalizeToHd(base64Url: string, targetWidth = 1920, targetHeight = 1080): Promise<string> {
+  try {
+    const b64 = base64Url.replace(/^data:image\/\w+;base64,/, "");
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const img = await Image.decode(bytes);
+    const scale = Math.min(targetWidth / img.width, targetHeight / img.height);
+    const resized = img.clone();
+    resized.resize(Math.max(1, Math.round(img.width * scale)), Math.max(1, Math.round(img.height * scale)));
+
+    const canvas = new Image(targetWidth, targetHeight);
+    canvas.fill(0xf3f4f0ff);
+    canvas.composite(resized, Math.round((targetWidth - resized.width) / 2), Math.round((targetHeight - resized.height) / 2));
+    const outBytes = await canvas.encode(1);
+    return `data:image/png;base64,${bytesToBase64(outBytes)}`;
+  } catch (e) {
+    console.error("[HD] normalizar:", e instanceof Error ? e.message : String(e));
+    return base64Url;
+  }
+}
+
 async function optimizeImageDataUrl(bytes: Uint8Array, maxBytes = MAX_REFERENCE_BYTES): Promise<string | null> {
   try {
     const decoded = await Image.decode(bytes);
@@ -495,12 +515,15 @@ function pushProjectContextRefs(
   labels: string[],
   refs: Record<string, any>,
   sceneType: "externo" | "interno" | "produto",
+  includeFloorPlan = true,
 ) {
   if (sceneType === "produto") return;
-  pushMandatoryRef(urls, labels, refs.planta as string | undefined,
-    sceneType === "interno"
-      ? "PLANTA BAIXA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA. A imagem interna DEVE nascer dela: entrada, caixas, gôndolas, corredores, setores, balcões, frios, câmaras, depósitos, banheiros e fluxo."
-      : "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
+  if (includeFloorPlan) {
+    pushMandatoryRef(urls, labels, refs.planta as string | undefined,
+      sceneType === "interno"
+        ? "PLANTA BAIXA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA. A imagem interna DEVE nascer dela: entrada, caixas, gôndolas, corredores, setores, balcões, frios, câmaras, depósitos, banheiros e fluxo."
+        : "PLANTA BAIXA / IMPLANTAÇÃO — REFERÊNCIA ESTRUTURAL MÁXIMA. Prédio, acessos, entrada, gôndolas, recuos e estacionamento DEVEM nascer dela.");
+  }
 
   const extras = normalizeExtraRefs(refs.extras);
   for (const [index, extra] of extras.slice(0, 3).entries()) {
@@ -533,6 +556,8 @@ PROIBIÇÕES: NÃO desenhe linhas de blueprint, cotas ou textos técnicos. NÃO 
 
 ESTILO: fotorrealismo extremo, qualidade de foto profissional de arquitetura, iluminação natural.
 
+FORMATO OBRIGATÓRIO: imagem horizontal 16:9 em HD, composição inteira dentro do quadro, sem cortar fachada, telhado, laterais, estacionamento ou letreiro. Fotografia realista, não ilustração, não maquete, não blueprint.
+
 CENA: ${scene}`;
 }
 
@@ -563,6 +588,8 @@ CHECKLIST OBRIGATÓRIO ANTES DE GERAR: confirme visualmente que a imagem respeit
 NEGATIVE PROMPT OBRIGATÓRIO: não alterar layout, não criar corredores extras, não mudar caixas de posição, não remover setores, não adicionar setores falsos, não distorcer proporções, não criar arquitetura inconsistente, não gerar maquete, não criar imagem genérica, não ignorar planta baixa, não mostrar linhas/cotas de blueprint na cena final.
 
 ESTILO: fotorrealismo extremo, iluminação comercial fluorescente branca, piso cerâmico claro.
+
+FORMATO OBRIGATÓRIO: imagem horizontal 16:9 em HD, câmera realista na altura humana, cena inteira dentro do quadro, sem cortar corredores, gôndolas, placas, caixas ou balcões. Fotografia realista, não maquete, não blueprint.
 
 CENA: ${scene}`;
 }
@@ -648,7 +675,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     { key: "img_b_url", name: "Entrada e Caixas", type: "interno", ref: "caixa_ref", scene: "Área interna logo após a ENTRADA com frente de caixas visível. OBRIGATÓRIO: portas automáticas de vidro duplas ao fundo, mostrando ATRAVÉS DELAS A MESMA paisagem da FACHADA JÁ GERADA (mesma calçada, vegetação, estacionamento). Quantidade de checkouts conforme PLANTA. Sinalização nas cores da LOGO." },
     { key: "img_c_url", name: "Corredores", type: "interno", ref: "corredor_ref", scene: "Corredor principal interno. Gôndolas dos dois lados com produtos brasileiros. Placas de seção nas cores da LOGO. Perspectiva central profunda." },
     { key: "img_d_url", name: "Interior / Fundo", type: "interno", ref: "interno_ref", scene: "Área dos fundos: açougue, padaria e hortifruti conforme PLANTA. Balcões refrigerados. Comunicação visual nas cores da LOGO." },
-    { key: "img_e_url", name: "Vista Superior (Aérea)", type: "externo", ref: "vista_superior_ref", scene: "VISTA SUPERIOR OBRIGATÓRIA. Aérea perpendicular (drone DIRETAMENTE DE CIMA, top-down 90°). Footprint do prédio idêntico à PLANTA. Telhado, fachada e estacionamento devem corresponder EXATAMENTE à FACHADA JÁ GERADA. Entorno urbano de " + cidade + "." },
+    { key: "img_t_url", name: "Vista Superior Final (Aérea)", type: "externo", ref: "vista_superior_ref", scene: "VISTA SUPERIOR OBRIGATÓRIA. Aérea perpendicular (drone DIRETAMENTE DE CIMA, top-down 90°). Footprint do prédio idêntico à PLANTA. Telhado, fachada e estacionamento devem corresponder EXATAMENTE à FACHADA JÁ GERADA. Entorno urbano de " + cidade + "." },
     { key: "img_f_url", name: "Farda", type: "produto", ref: "", scene: "Uniforme: camiseta polo SIMPLES com LOGO bordada no peito esquerdo. Cores EXATAS da logo. Em manequim. Fundo neutro." },
     { key: "img_g_url", name: "Sacola", type: "produto", ref: "", scene: "Sacola plástica SIMPLES com LOGO impressa. Plástico branco ou cor da logo. Sacola comum de mercadinho. Fundo neutro." },
     { key: "img_h_url", name: "Carrinho", type: "produto", ref: "", scene: "Carrinho de supermercado padrão brasileiro (metal/arame). LOGO frontal. Detalhes na cor da logo. SIMPLES e funcional. Fundo neutro." },
@@ -658,7 +685,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
-    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto");
+    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.key !== "img_a_url");
 
     pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais e linguagem arquitetônica.");
     if (s.type === "interno") {
@@ -666,21 +693,21 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — preserve circulação e ritmo das gôndolas.");
       pushMandatoryRef(urls, labels, caixaRef, "REFERÊNCIA DE CAIXAS ENVIADA — preserve padrão da entrada/caixas.");
     }
-    if (s.key === "img_e_url") {
+    if (s.key === "img_t_url") {
       pushMandatoryRef(urls, labels, vistaSuperiorRef, "REFERÊNCIA DE VISTA SUPERIOR ENVIADA — preserve leitura aérea.");
     }
-    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url" || s.key === "img_s_url")) {
+    if (fachadaGerada && (s.key === "img_b_url" || s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_t_url" || s.key === "img_s_url")) {
       pushMandatoryRef(urls, labels, fachadaGerada, logo
         ? "FACHADA JÁ GERADA — referência ABSOLUTA de constância. Mantenha mesmas cores, letreiro, paisagem externa e identidade arquitetônica."
         : "FACHADA JÁ GERADA — NÃO HÁ LOGO ENVIADA. Use o letreiro, nome, cores e identidade criados na fachada como identidade visual obrigatória do interior.");
     }
-    if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_e_url")) {
+    if (entradaGerada && (s.key === "img_c_url" || s.key === "img_d_url" || s.key === "img_t_url")) {
       pushMandatoryRef(urls, labels, entradaGerada, "ENTRADA JÁ GERADA — preserve posição da porta, transição e fluxo inicial.");
     }
-    if (corredoresGerada && (s.key === "img_d_url" || s.key === "img_e_url")) {
+    if (corredoresGerada && (s.key === "img_d_url" || s.key === "img_t_url")) {
       pushMandatoryRef(urls, labels, corredoresGerada, "CORREDORES JÁ GERADOS — continuidade obrigatória do layout interno.");
     }
-    if (interiorGerado && s.key === "img_e_url") {
+    if (interiorGerado && s.key === "img_t_url") {
       pushMandatoryRef(urls, labels, interiorGerado, "INTERIOR JÁ GERADO — vista aérea representa o MESMO edifício.");
     }
     if (vistaSuperiorGerada && s.type !== "produto") {
@@ -823,6 +850,7 @@ Deno.serve(async (req) => {
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
       let base64 = await generateImageGemini(lovableKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      base64 = await normalizeToHd(base64);
       base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
       if (url) await sb.from("projects").update({ [image_key]: url, status: "concluido", updated_at: new Date().toISOString() }).eq("id", project_id);
@@ -870,6 +898,7 @@ Deno.serve(async (req) => {
       for (const asset of collectAssetRefs(refs)) pushMandatoryRef(refUrls, refLabels, asset.url, asset.label);
       let base64 = await generateImageGemini(lovableKey, overheadPrompt, refUrls, refLabels);
       if (!base64) throw new Error("Falha ao gerar vista superior base");
+      base64 = await normalizeToHd(base64);
       base64 = await applyWatermark(base64);
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
       if (body.auto_continue === true) {
@@ -895,6 +924,7 @@ Deno.serve(async (req) => {
           let base64 = await generateImageGemini(lovableKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
+            base64 = await normalizeToHd(base64);
             const stamped = await applyWatermark(base64);
             const url = await uploadBase64Image(sb, project_id, current.imgKey.replace("_url", ""), stamped);
             if (url) {
