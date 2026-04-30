@@ -337,6 +337,73 @@ async function generateImageGemini(
   return null;
 }
 
+async function generateImageLovable(
+  apiKey: string,
+  prompt: string,
+  refUrls: string[],
+  refLabels: string[],
+): Promise<string | null> {
+  const labeledPrompt = refUrls.length > 0
+    ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL).map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
+    : prompt;
+  const content: Array<Record<string, unknown>> = [{ type: "text", text: labeledPrompt.substring(0, 24000) }];
+  const normalizedRefs = await Promise.all(refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL).map((url) => urlToDirectDataUrl(url)));
+
+  normalizedRefs.forEach((dataUrl, index) => {
+    if (dataUrl) content.push({ type: "image_url", image_url: { url: dataUrl } });
+    else console.warn(`[LOVABLE/image] referência ignorada: ${refLabels[index] || `Ref ${index + 1}`}`);
+  });
+
+  console.log(`[LOVABLE/image] ${content.length - 1} refs, prompt ${labeledPrompt.length} chars`);
+
+  for (let i = 0; i < LOVABLE_IMAGE_MODELS.length; i++) {
+    const model = LOVABLE_IMAGE_MODELS[i];
+    try {
+      const res = await fetch(LOVABLE_AI_BASE, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[LOVABLE/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+        if ((res.status === 404 || res.status === 400) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
+        return null;
+      }
+
+      const data = await res.json();
+      const imageData = extractLovableImageData(data);
+      if (imageData) {
+        console.log(`[LOVABLE/image] ✓ imagem gerada com ${model}`);
+        return imageData;
+      }
+      console.error(`[LOVABLE/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
+      return null;
+    } catch (e) {
+      console.error(`[LOVABLE/image] ${model} erro:`, getErrorMessage(e));
+      if (i === LOVABLE_IMAGE_MODELS.length - 1) return null;
+    }
+  }
+  return null;
+}
+
+async function generateImage(
+  lovableApiKey: string | null,
+  geminiApiKey: string | null,
+  prompt: string,
+  refUrls: string[],
+  refLabels: string[],
+): Promise<string | null> {
+  if (lovableApiKey) {
+    const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels);
+    if (generated) return generated;
+    console.warn("[IMAGE] Lovable AI falhou; tentando Gemini direto como fallback.");
+  }
+  if (geminiApiKey) return await generateImageGemini(geminiApiKey, prompt, refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL), refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL));
+  return null;
+}
+
 // ==================== ANÁLISE MULTIMODAL (Gemini 2.5 Pro — API direta) ====================
 
 function extractJsonObject(text: string): Record<string, unknown> {
