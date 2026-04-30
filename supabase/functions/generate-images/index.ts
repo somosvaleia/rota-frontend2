@@ -1,6 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { Image } from "https://deno.land/x/imagescript@1.2.17/mod.ts";
 
+declare const EdgeRuntime: { waitUntil?: (promise: Promise<unknown>) => void } | undefined;
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
@@ -832,6 +834,15 @@ async function invokeNextStage(payload: Record<string, unknown>) {
   } catch (e) {
     console.error("Self-invoke erro:", getErrorMessage(e));
   }
+}
+
+function scheduleNextStage(payload: Record<string, unknown>) {
+  const task = invokeNextStage(payload).catch((e) => console.error("Self-invoke agendado erro:", getErrorMessage(e)));
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
+    EdgeRuntime.waitUntil(task);
+    return;
+  }
+  task.catch(() => undefined);
 }
 
 // ==================== MAIN HANDLER ====================
