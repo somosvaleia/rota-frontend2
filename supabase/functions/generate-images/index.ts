@@ -9,8 +9,13 @@ const corsHeaders = {
 };
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const LOVABLE_AI_BASE = "https://ai.gateway.lovable.dev/v1/chat/completions";
 // Fallback chain — se um modelo retornar 404 (modelo não disponível para a chave),
 // tenta o próximo automaticamente.
+const LOVABLE_IMAGE_MODELS = [
+  "google/gemini-3.1-flash-image-preview",
+  "google/gemini-2.5-flash-image",
+];
 const GEMINI_IMAGE_MODELS = [
   "gemini-3.1-flash-image-preview",
   "gemini-2.5-flash-image-preview",
@@ -24,6 +29,8 @@ const GEMINI_TEXT_MODELS = [
 ];
 const MAX_REFERENCE_BYTES = 500_000;
 const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
+const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
+const MAX_IMAGE_REFS_PER_CALL = 4;
 
 // ==================== WATERMARK ====================
 
