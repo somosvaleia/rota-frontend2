@@ -9,8 +9,13 @@ const corsHeaders = {
 };
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+const LOVABLE_AI_BASE = "https://ai.gateway.lovable.dev/v1/chat/completions";
 // Fallback chain — se um modelo retornar 404 (modelo não disponível para a chave),
 // tenta o próximo automaticamente.
+const LOVABLE_IMAGE_MODELS = [
+  "google/gemini-3.1-flash-image-preview",
+  "google/gemini-2.5-flash-image",
+];
 const GEMINI_IMAGE_MODELS = [
   "gemini-3.1-flash-image-preview",
   "gemini-2.5-flash-image-preview",
@@ -24,6 +29,8 @@ const GEMINI_TEXT_MODELS = [
 ];
 const MAX_REFERENCE_BYTES = 500_000;
 const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
+const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
+const MAX_IMAGE_REFS_PER_CALL = 4;
 
 // ==================== WATERMARK ====================
 
@@ -178,8 +185,8 @@ async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promis
       return `data:${ct};base64,${bytesToBase64(bytes)}`;
     }
 
-    console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Otimizando...`);
-    return await optimizeImageDataUrl(bytes, maxBytes);
+    console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Ignorando para evitar estouro de CPU.`);
+    return null;
   } catch (error) {
     console.error("[REF] erro ao carregar referência:", getErrorMessage(error));
     return null;
@@ -211,6 +218,31 @@ function extractGeminiImageData(payload: any): string | null {
   }
 
   return null;
+}
+
+function extractLovableImageData(payload: any): string | null {
+  const imageUrl = payload?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+  return typeof imageUrl === "string" && imageUrl.startsWith("data:image/") ? imageUrl : null;
+}
+
+async function urlToDirectDataUrl(url: string, maxBytes = MAX_DIRECT_IMAGE_REF_BYTES): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`[REF/direct] fetch ${res.status}: ${url.substring(0, 80)}`);
+      return null;
+    }
+    const ct = res.headers.get("content-type") || "image/png";
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.byteLength > maxBytes) {
+      console.warn(`[REF/direct] ignorada acima do limite (${Math.round(bytes.byteLength / 1024)}KB)`);
+      return null;
+    }
+    return `data:${ct};base64,${bytesToBase64(bytes)}`;
+  } catch (error) {
+    console.error("[REF/direct] erro:", getErrorMessage(error));
+    return null;
+  }
 }
 
 function extractGeminiText(payload: any): string {
@@ -302,6 +334,73 @@ async function generateImageGemini(
       if (i === GEMINI_IMAGE_MODELS.length - 1) return null;
     }
   }
+  return null;
+}
+
+async function generateImageLovable(
+  apiKey: string,
+  prompt: string,
+  refUrls: string[],
+  refLabels: string[],
+): Promise<string | null> {
+  const labeledPrompt = refUrls.length > 0
+    ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL).map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
+    : prompt;
+  const content: Array<Record<string, unknown>> = [{ type: "text", text: labeledPrompt.substring(0, 24000) }];
+  const normalizedRefs = await Promise.all(refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL).map((url) => urlToDirectDataUrl(url)));
+
+  normalizedRefs.forEach((dataUrl, index) => {
+    if (dataUrl) content.push({ type: "image_url", image_url: { url: dataUrl } });
+    else console.warn(`[LOVABLE/image] referência ignorada: ${refLabels[index] || `Ref ${index + 1}`}`);
+  });
+
+  console.log(`[LOVABLE/image] ${content.length - 1} refs, prompt ${labeledPrompt.length} chars`);
+
+  for (let i = 0; i < LOVABLE_IMAGE_MODELS.length; i++) {
+    const model = LOVABLE_IMAGE_MODELS[i];
+    try {
+      const res = await fetch(LOVABLE_AI_BASE, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
+      });
+
+      if (!res.ok) {
+        const err = await res.text();
+        console.error(`[LOVABLE/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+        if ((res.status === 404 || res.status === 400) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
+        return null;
+      }
+
+      const data = await res.json();
+      const imageData = extractLovableImageData(data);
+      if (imageData) {
+        console.log(`[LOVABLE/image] ✓ imagem gerada com ${model}`);
+        return imageData;
+      }
+      console.error(`[LOVABLE/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
+      return null;
+    } catch (e) {
+      console.error(`[LOVABLE/image] ${model} erro:`, getErrorMessage(e));
+      if (i === LOVABLE_IMAGE_MODELS.length - 1) return null;
+    }
+  }
+  return null;
+}
+
+async function generateImage(
+  lovableApiKey: string | null,
+  geminiApiKey: string | null,
+  prompt: string,
+  refUrls: string[],
+  refLabels: string[],
+): Promise<string | null> {
+  if (lovableApiKey) {
+    const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels);
+    if (generated) return generated;
+    console.warn("[IMAGE] Lovable AI falhou; tentando Gemini direto como fallback.");
+  }
+  if (geminiApiKey) return await generateImageGemini(geminiApiKey, prompt, refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL), refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL));
   return null;
 }
 
@@ -871,9 +970,10 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "project_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const lovableKey = Deno.env.get("GEMINI_API_KEY");
-    if (!lovableKey) {
-      return new Response(JSON.stringify({ error: "GEMINI_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const geminiKey = Deno.env.get("GEMINI_API_KEY") || null;
+    const lovableAiKey = Deno.env.get("LOVABLE_API_KEY") || null;
+    if (!geminiKey && !lovableAiKey) {
+      return new Response(JSON.stringify({ error: "Nenhuma chave de IA configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -906,7 +1006,7 @@ Deno.serve(async (req) => {
 
     // ---- Edição individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
-      let base64 = await generateImageGemini(lovableKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
+      let base64 = await generateImage(lovableAiKey, geminiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       base64 = await prepareGeneratedImage(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
@@ -942,8 +1042,10 @@ Deno.serve(async (req) => {
     const existingVisual = (project.visual_identity_json && Object.keys(project.visual_identity_json).length > 0) ? project.visual_identity_json : null;
     const multimodal = existingStructural && existingVisual
       ? { structural: existingStructural, visual: existingVisual, summary: floor_plan_summary || "" }
-      : await analyzeProjectAssetsGemini(lovableKey, refs, nome, cidadeVal, obsVal, catsVal);
-    const plantaResumo = floor_plan_summary || multimodal.summary || await analyzeFloorPlanGemini(lovableKey, refs.planta, nome, cidadeVal);
+      : geminiKey
+        ? await analyzeProjectAssetsGemini(geminiKey, refs, nome, cidadeVal, obsVal, catsVal)
+        : { structural: {}, visual: {}, summary: "" };
+    const plantaResumo = floor_plan_summary || multimodal.summary || (geminiKey ? await analyzeFloorPlanGemini(geminiKey, refs.planta, nome, cidadeVal) : "");
 
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
@@ -968,7 +1070,7 @@ Deno.serve(async (req) => {
       const refUrls: string[] = [];
       const refLabels: string[] = [];
       for (const asset of collectAssetRefs(refs)) pushMandatoryRef(refUrls, refLabels, asset.url, asset.label);
-      let base64 = await generateImageGemini(lovableKey, overheadPrompt, refUrls, refLabels);
+      let base64 = await generateImage(lovableAiKey, geminiKey, overheadPrompt, refUrls, refLabels);
       if (!base64) throw new Error("Falha ao gerar vista superior base");
       base64 = await prepareGeneratedImage(base64);
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
@@ -992,7 +1094,7 @@ Deno.serve(async (req) => {
           if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && !refsComFachada.planta) {
             console.warn(`[INTERNO] ${current.sceneName} sem planta enviada; usando apenas referências disponíveis e observações.`);
           }
-          let base64 = await generateImageGemini(lovableKey, current.prompt, current.refUrls, current.refLabels);
+          let base64 = await generateImage(lovableAiKey, geminiKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
             base64 = await prepareGeneratedImage(base64);
