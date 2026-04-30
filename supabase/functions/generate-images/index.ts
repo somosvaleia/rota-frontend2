@@ -918,6 +918,21 @@ Deno.serve(async (req) => {
     const cidadeVal = cidade || project.cidade || "";
     const obsVal = observacoes || project.observacoes || "";
     const catsVal = Array.isArray(categorias) && categorias.length > 0 ? categorias : (Array.isArray(project.categorias) ? project.categorias : []);
+
+    if (stage === "finalize") {
+      const count = IMAGE_KEYS.filter(k => Boolean(project?.[k])).length;
+      const status = count > 0 ? "concluido" : "erro";
+      await sb.from("projects").update({ status, processing_status: count > 0 ? "completed" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
+      console.log(`✓ Finalizado: ${status} (${count} imagens)`);
+      return new Response(JSON.stringify({ status, images: count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (stage === "start") {
+      await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", updated_at: new Date().toISOString() }).eq("id", project_id);
+      scheduleNextStage({ project_id, stage: "analyze" });
+      return new Response(JSON.stringify({ stage: "analyze", queued: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const existingStructural = (project.structural_analysis_json && Object.keys(project.structural_analysis_json).length > 0) ? project.structural_analysis_json : null;
     const existingVisual = (project.visual_identity_json && Object.keys(project.visual_identity_json).length > 0) ? project.visual_identity_json : null;
     const multimodal = existingStructural && existingVisual
@@ -934,7 +949,7 @@ Deno.serve(async (req) => {
     if (project.overhead_image_url) refsComFachada.vista_superior_gerada = project.overhead_image_url;
     const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo, multimodal.structural, multimodal.visual);
 
-    if (stage === "start") {
+    if (stage === "analyze") {
       await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", structural_analysis_json: multimodal.structural, visual_identity_json: multimodal.visual, updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!refs.logo}, planta=${!!refs.planta}`);
       if (plantaResumo) console.log(`[START] resumo planta ATIVO`);
@@ -999,15 +1014,6 @@ Deno.serve(async (req) => {
 
       scheduleNextStage({ project_id, stage: "finalize" });
       return new Response(JSON.stringify({ stage: "finalize" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    if (stage === "finalize") {
-      const { data: final } = await sb.from("projects").select("*").eq("id", project_id).single();
-      const count = IMAGE_KEYS.filter(k => Boolean(final?.[k])).length;
-      const status = count > 0 ? "concluido" : "erro";
-      await sb.from("projects").update({ status, processing_status: count > 0 ? "completed" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`✓ Finalizado: ${status} (${count} imagens)`);
-      return new Response(JSON.stringify({ status, images: count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     return new Response(JSON.stringify({ error: "Estágio desconhecido" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
