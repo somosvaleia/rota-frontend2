@@ -220,6 +220,31 @@ function extractGeminiImageData(payload: any): string | null {
   return null;
 }
 
+function extractLovableImageData(payload: any): string | null {
+  const imageUrl = payload?.choices?.[0]?.message?.images?.[0]?.image_url?.url;
+  return typeof imageUrl === "string" && imageUrl.startsWith("data:image/") ? imageUrl : null;
+}
+
+async function urlToDirectDataUrl(url: string, maxBytes = MAX_DIRECT_IMAGE_REF_BYTES): Promise<string | null> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.warn(`[REF/direct] fetch ${res.status}: ${url.substring(0, 80)}`);
+      return null;
+    }
+    const ct = res.headers.get("content-type") || "image/png";
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.byteLength > maxBytes) {
+      console.warn(`[REF/direct] ignorada acima do limite (${Math.round(bytes.byteLength / 1024)}KB)`);
+      return null;
+    }
+    return `data:${ct};base64,${bytesToBase64(bytes)}`;
+  } catch (error) {
+    console.error("[REF/direct] erro:", getErrorMessage(error));
+    return null;
+  }
+}
+
 function extractGeminiText(payload: any): string {
   const candidates = Array.isArray(payload?.candidates) ? payload.candidates : [];
   const texts: string[] = [];
