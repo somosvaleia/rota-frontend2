@@ -1042,8 +1042,10 @@ Deno.serve(async (req) => {
     const existingVisual = (project.visual_identity_json && Object.keys(project.visual_identity_json).length > 0) ? project.visual_identity_json : null;
     const multimodal = existingStructural && existingVisual
       ? { structural: existingStructural, visual: existingVisual, summary: floor_plan_summary || "" }
-      : await analyzeProjectAssetsGemini(lovableKey, refs, nome, cidadeVal, obsVal, catsVal);
-    const plantaResumo = floor_plan_summary || multimodal.summary || await analyzeFloorPlanGemini(lovableKey, refs.planta, nome, cidadeVal);
+      : geminiKey
+        ? await analyzeProjectAssetsGemini(geminiKey, refs, nome, cidadeVal, obsVal, catsVal)
+        : { structural: {}, visual: {}, summary: "" };
+    const plantaResumo = floor_plan_summary || multimodal.summary || (geminiKey ? await analyzeFloorPlanGemini(geminiKey, refs.planta, nome, cidadeVal) : "");
 
     const refsComFachada = { ...refs };
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
@@ -1068,7 +1070,7 @@ Deno.serve(async (req) => {
       const refUrls: string[] = [];
       const refLabels: string[] = [];
       for (const asset of collectAssetRefs(refs)) pushMandatoryRef(refUrls, refLabels, asset.url, asset.label);
-      let base64 = await generateImageGemini(lovableKey, overheadPrompt, refUrls, refLabels);
+      let base64 = await generateImage(lovableAiKey, geminiKey, overheadPrompt, refUrls, refLabels);
       if (!base64) throw new Error("Falha ao gerar vista superior base");
       base64 = await prepareGeneratedImage(base64);
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
@@ -1092,7 +1094,7 @@ Deno.serve(async (req) => {
           if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && !refsComFachada.planta) {
             console.warn(`[INTERNO] ${current.sceneName} sem planta enviada; usando apenas referências disponíveis e observações.`);
           }
-          let base64 = await generateImageGemini(lovableKey, current.prompt, current.refUrls, current.refLabels);
+          let base64 = await generateImage(lovableAiKey, geminiKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
             base64 = await prepareGeneratedImage(base64);
