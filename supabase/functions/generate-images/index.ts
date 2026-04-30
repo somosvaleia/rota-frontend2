@@ -908,8 +908,7 @@ Deno.serve(async (req) => {
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
       let base64 = await generateImageGemini(lovableKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      base64 = await normalizeToHd(base64);
-      base64 = await applyWatermark(base64);
+      base64 = await prepareGeneratedImage(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
       if (url) await sb.from("projects").update({ [image_key]: url, status: "concluido", updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ success: true, new_url: url }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -971,8 +970,7 @@ Deno.serve(async (req) => {
       for (const asset of collectAssetRefs(refs)) pushMandatoryRef(refUrls, refLabels, asset.url, asset.label);
       let base64 = await generateImageGemini(lovableKey, overheadPrompt, refUrls, refLabels);
       if (!base64) throw new Error("Falha ao gerar vista superior base");
-      base64 = await normalizeToHd(base64);
-      base64 = await applyWatermark(base64);
+      base64 = await prepareGeneratedImage(base64);
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
       if (body.auto_continue === true) {
         await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "generating_scenes", approved_steps: ["overhead_auto"], paused_at_step: "scene_0", updated_at: new Date().toISOString() }).eq("id", project_id);
@@ -997,9 +995,8 @@ Deno.serve(async (req) => {
           let base64 = await generateImageGemini(lovableKey, current.prompt, current.refUrls, current.refLabels);
 
           if (base64) {
-            base64 = await normalizeToHd(base64);
-            const stamped = await applyWatermark(base64);
-            const url = await uploadBase64Image(sb, project_id, current.imgKey.replace("_url", ""), stamped);
+            base64 = await prepareGeneratedImage(base64);
+            const url = await uploadBase64Image(sb, project_id, current.imgKey.replace("_url", ""), base64);
             if (url) {
               await sb.from("projects").update({ [current.imgKey]: url, updated_at: new Date().toISOString() }).eq("id", project_id);
               console.log(`✓ ${current.sceneName} concluída`);
