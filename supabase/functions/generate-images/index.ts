@@ -185,8 +185,8 @@ async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promis
       return `data:${ct};base64,${bytesToBase64(bytes)}`;
     }
 
-    console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Otimizando...`);
-    return await optimizeImageDataUrl(bytes, maxBytes);
+    console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Ignorando para evitar estouro de CPU.`);
+    return null;
   } catch (error) {
     console.error("[REF] erro ao carregar referência:", getErrorMessage(error));
     return null;
