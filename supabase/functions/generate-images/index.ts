@@ -970,9 +970,10 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "project_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const lovableKey = Deno.env.get("GEMINI_API_KEY");
-    if (!lovableKey) {
-      return new Response(JSON.stringify({ error: "GEMINI_API_KEY não configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const geminiKey = Deno.env.get("GEMINI_API_KEY") || null;
+    const lovableAiKey = Deno.env.get("LOVABLE_API_KEY") || null;
+    if (!geminiKey && !lovableAiKey) {
+      return new Response(JSON.stringify({ error: "Nenhuma chave de IA configurada" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -1005,7 +1006,7 @@ Deno.serve(async (req) => {
 
     // ---- Edição individual ----
     if (tipo === "edicao" && image_key && image_url && customPrompt) {
-      let base64 = await generateImageGemini(lovableKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
+      let base64 = await generateImage(lovableAiKey, geminiKey, customPrompt, [image_url], ["IMAGEM ORIGINAL — edite conforme instruções"]);
       if (!base64) return new Response(JSON.stringify({ error: "Falha ao gerar imagem" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       base64 = await prepareGeneratedImage(base64);
       const url = await uploadBase64Image(sb, project_id, image_key.replace("_url", ""), base64);
