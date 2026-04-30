@@ -130,6 +130,12 @@ async function applyWatermark(base64Url: string): Promise<string> {
   }
 }
 
+async function prepareGeneratedImage(base64Url: string): Promise<string> {
+  // Pós-processamento com canvas/encode em Edge Function estoura memória com imagens HD.
+  // A proporção/HD fica controlada pelo prompt e a imagem é salva direto para garantir conclusão.
+  return base64Url;
+}
+
 // ==================== HELPERS ====================
 
 function getErrorMessage(error: unknown): string {
