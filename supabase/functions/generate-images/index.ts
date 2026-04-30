@@ -886,7 +886,7 @@ Deno.serve(async (req) => {
         updates.processing_status = "generating_overhead";
         updates.overhead_image_url = null;
         await sb.from("projects").update(updates).eq("id", project_id);
-        await invokeNextStage({ project_id, stage: "overhead", regenerate: true });
+        scheduleNextStage({ project_id, stage: "overhead", regenerate: true });
         return new Response(JSON.stringify({ success: true, processing_status: "generating_overhead" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       updates.processing_status = "generating_scenes";
@@ -894,7 +894,7 @@ Deno.serve(async (req) => {
       const resumeOffset = control_action === "continue"
         ? Math.max(0, Number(String(controlProject?.paused_at_step || "").match(/^scene_(\d+)$/)?.[1] || 0))
         : 0;
-      await invokeNextStage({ project_id, stage: "images", scene_offset: resumeOffset });
+      scheduleNextStage({ project_id, stage: "images", scene_offset: resumeOffset });
       return new Response(JSON.stringify({ success: true, processing_status: "generating_scenes" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -938,7 +938,7 @@ Deno.serve(async (req) => {
       await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", structural_analysis_json: multimodal.structural, visual_identity_json: multimodal.visual, updated_at: new Date().toISOString() }).eq("id", project_id);
       console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!refs.logo}, planta=${!!refs.planta}`);
       if (plantaResumo) console.log(`[START] resumo planta ATIVO`);
-      await invokeNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo, auto_continue: true });
+      scheduleNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo, auto_continue: true });
       return new Response(JSON.stringify({ stage: "overhead", auto_continue: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -955,7 +955,7 @@ Deno.serve(async (req) => {
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
       if (body.auto_continue === true) {
         await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "generating_scenes", approved_steps: ["overhead_auto"], paused_at_step: "scene_0", updated_at: new Date().toISOString() }).eq("id", project_id);
-        await invokeNextStage({ project_id, stage: "images", scene_offset: 0, floor_plan_summary: plantaResumo });
+        scheduleNextStage({ project_id, stage: "images", scene_offset: 0, floor_plan_summary: plantaResumo });
         return new Response(JSON.stringify({ stage: "images", overhead_image_url: url, auto_continue: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       await sb.from("projects").update({ overhead_image_url: url, img_e_url: url, overhead_prompt: overheadPrompt, processing_status: "waiting_user_approval", paused_at_step: "overhead", updated_at: new Date().toISOString() }).eq("id", project_id);
@@ -993,11 +993,11 @@ Deno.serve(async (req) => {
 
       const next = scene_offset + 1;
       if (next < scenes.length) {
-        await invokeNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo });
+        scheduleNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo });
         return new Response(JSON.stringify({ stage: "images", scene: next, total: scenes.length }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      await invokeNextStage({ project_id, stage: "finalize" });
+      scheduleNextStage({ project_id, stage: "finalize" });
       return new Response(JSON.stringify({ stage: "finalize" }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
