@@ -850,7 +850,8 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
-    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.key !== "img_a_url" && s.type !== "interno");
+    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.type !== "interno");
+    appendSequentialGeneratedRefs(urls, labels, refs, s.key, s.type as "externo" | "interno" | "produto");
 
     pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais e linguagem arquitetônica.");
     if (s.type === "interno") {
@@ -883,7 +884,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     }
 
     let prompt: string;
-    const hybridContext = `\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`;
+    const hybridContext = `\n\nCADEIA OBRIGATÓRIA DE REFERÊNCIAS:\nA PLANTA/BASE VISUAL manda em TODAS as cenas. Imagem A deve nascer da planta. Imagem B deve nascer da planta + imagem A. Imagem C deve nascer da planta + imagens A/B. E assim por diante. Nunca reinicie estilo, layout, arquitetura, posição de entrada, caixas, corredores, gôndolas, cores, letreiro ou materiais.\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`;
     if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo) + hybridContext;
     else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo) + hybridContext;
     else prompt = promptProduto(nome, cidade, s.scene);
