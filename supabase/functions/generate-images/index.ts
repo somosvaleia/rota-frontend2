@@ -899,6 +899,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
     pushProjectContextRefs(urls, labels, refs, "interno", false);
+    appendSequentialGeneratedRefs(urls, labels, refs, GONDOLA_KEYS[i], "interno");
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas.");
     if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
@@ -939,6 +940,7 @@ ${c.observacao || ""}`;
     usedKeys.add(key);
     const { urls, labels } = mkRefs("interno", corredorRef || internoRef);
     pushProjectContextRefs(urls, labels, refs, "interno", false);
+    appendSequentialGeneratedRefs(urls, labels, refs, key, "interno");
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha circulação e ritmo das gôndolas.");
     if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
