@@ -30,7 +30,8 @@ const GEMINI_TEXT_MODELS = [
 const MAX_REFERENCE_BYTES = 500_000;
 const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
 const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
-const MAX_IMAGE_REFS_PER_CALL = 4;
+const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
+const MAX_IMAGE_REFS_PER_CALL = 6;
 
 // ==================== WATERMARK ====================
 
@@ -185,7 +186,12 @@ async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promis
       return `data:${ct};base64,${bytesToBase64(bytes)}`;
     }
 
-    console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Ignorando para evitar estouro de CPU.`);
+    if (bytes.byteLength <= MAX_OPTIMIZABLE_REF_BYTES) {
+      console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Comprimindo para manter constância visual.`);
+      return await optimizeImageDataUrl(bytes, maxBytes);
+    }
+
+    console.warn(`[REF] imagem muito acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Ignorando para evitar estouro de CPU.`);
     return null;
   } catch (error) {
     console.error("[REF] erro ao carregar referência:", getErrorMessage(error));
@@ -235,7 +241,11 @@ async function urlToDirectDataUrl(url: string, maxBytes = MAX_DIRECT_IMAGE_REF_B
     const ct = res.headers.get("content-type") || "image/png";
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.byteLength > maxBytes) {
-      console.warn(`[REF/direct] ignorada acima do limite (${Math.round(bytes.byteLength / 1024)}KB)`);
+      if (bytes.byteLength <= MAX_OPTIMIZABLE_REF_BYTES) {
+        console.warn(`[REF/direct] comprimindo referência (${Math.round(bytes.byteLength / 1024)}KB) para manter constância visual.`);
+        return await optimizeImageDataUrl(bytes, MAX_REFERENCE_BYTES);
+      }
+      console.warn(`[REF/direct] ignorada muito acima do limite (${Math.round(bytes.byteLength / 1024)}KB)`);
       return null;
     }
     return `data:${ct};base64,${bytesToBase64(bytes)}`;
@@ -600,6 +610,42 @@ function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?
   labels.push(label);
 }
 
+function chainLabelForImage(key: string): string {
+  const labels: Record<string, string> = {
+    img_a_url: "IMAGEM A / FACHADA JÁ GERADA",
+    img_b_url: "IMAGEM B / ENTRADA E CAIXAS JÁ GERADA",
+    img_c_url: "IMAGEM C / CORREDORES JÁ GERADOS",
+    img_d_url: "IMAGEM D / INTERIOR/FUNDO JÁ GERADO",
+    img_e_url: "IMAGEM E / VISTA SUPERIOR BASE JÁ GERADA",
+    img_f_url: "IMAGEM F / FARDAMENTO JÁ GERADO",
+    img_g_url: "IMAGEM G / SACOLA JÁ GERADA",
+    img_h_url: "IMAGEM H / CARRINHO JÁ GERADO",
+    img_s_url: "IMAGEM S / VISTA LATERAL JÁ GERADA",
+    img_t_url: "IMAGEM T / VISTA DRONE JÁ GERADA",
+  };
+  return labels[key] || `IMAGEM ${key.replace("img_", "").replace("_url", "").toUpperCase()} JÁ GERADA`;
+}
+
+function appendSequentialGeneratedRefs(
+  urls: string[],
+  labels: string[],
+  refs: Record<string, any>,
+  currentKey: string,
+  sceneType: "externo" | "interno" | "produto",
+) {
+  const order = ["img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url", "img_f_url", "img_g_url", "img_h_url", "img_s_url", "img_t_url", ...GONDOLA_KEYS];
+  const currentIndex = order.indexOf(currentKey);
+  const previousKeys = currentIndex > 0 ? order.slice(0, currentIndex) : [];
+  for (const key of previousKeys) {
+    const url = refs[key] as string | undefined;
+    if (!url) continue;
+    const isProduct = key === "img_f_url" || key === "img_g_url" || key === "img_h_url";
+    if (sceneType !== "produto" && isProduct) continue;
+    if (sceneType === "produto" && key !== "img_a_url" && key !== "img_f_url" && key !== "img_g_url" && key !== "img_h_url") continue;
+    pushMandatoryRef(urls, labels, url, `${chainLabelForImage(key)} — referência sequencial obrigatória. A nova imagem deve continuar a mesma planta, identidade, proporções e materiais, sem reiniciar o projeto.`);
+  }
+}
+
 function extractMeasurementLines(plantaResumo = ""): string {
   return plantaResumo
     .split(/\n+/).map((l) => l.trim()).filter(Boolean)
@@ -804,7 +850,8 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
   for (const s of fixed) {
     const refUrl = s.ref ? refs[s.ref] : undefined;
     const { urls, labels } = mkRefs(s.type, refUrl);
-    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.key !== "img_a_url" && s.type !== "interno");
+    pushProjectContextRefs(urls, labels, refs, s.type as "externo" | "interno" | "produto", s.type !== "interno");
+    appendSequentialGeneratedRefs(urls, labels, refs, s.key, s.type as "externo" | "interno" | "produto");
 
     pushMandatoryRef(urls, labels, fachadaRef, "REFERÊNCIA DE FACHADA ENVIADA — preserve volumetria, materiais e linguagem arquitetônica.");
     if (s.type === "interno") {
@@ -837,7 +884,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
     }
 
     let prompt: string;
-    const hybridContext = `\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`;
+    const hybridContext = `\n\nCADEIA OBRIGATÓRIA DE REFERÊNCIAS:\nA PLANTA/BASE VISUAL manda em TODAS as cenas. Imagem A deve nascer da planta. Imagem B deve nascer da planta + imagem A. Imagem C deve nascer da planta + imagens A/B. E assim por diante. Nunca reinicie estilo, layout, arquitetura, posição de entrada, caixas, corredores, gôndolas, cores, letreiro ou materiais.\n\nBASE ESTRUTURAL APROVADA:\n${JSON.stringify(structural, null, 2).substring(0, 8000)}\n\nBASE VISUAL APROVADA:\n${JSON.stringify(visual, null, 2).substring(0, 8000)}\n\nMantenha coerência total com a vista superior/mapa base quando fornecida.`;
     if (s.type === "externo") prompt = promptExterno(nome, cidade, obs, s.scene, plantaResumo) + hybridContext;
     else if (s.type === "interno") prompt = promptInterno(nome, cidade, obs, s.scene, plantaResumo) + hybridContext;
     else prompt = promptProduto(nome, cidade, s.scene);
@@ -852,6 +899,7 @@ function buildAllScenes(nome: string, cidade: string, obs: string, categorias: a
       : undefined;
     const { urls, labels } = mkRefs("interno", c.refImage);
     pushProjectContextRefs(urls, labels, refs, "interno", false);
+    appendSequentialGeneratedRefs(urls, labels, refs, GONDOLA_KEYS[i], "interno");
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha linguagem das gôndolas.");
     if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
@@ -892,6 +940,7 @@ ${c.observacao || ""}`;
     usedKeys.add(key);
     const { urls, labels } = mkRefs("interno", corredorRef || internoRef);
     pushProjectContextRefs(urls, labels, refs, "interno", false);
+    appendSequentialGeneratedRefs(urls, labels, refs, key, "interno");
     pushMandatoryRef(urls, labels, internoRef, "REFERÊNCIA INTERNA ENVIADA — mantenha materiais e identidade visual.");
     pushMandatoryRef(urls, labels, corredorRef, "REFERÊNCIA DE CORREDOR ENVIADA — mantenha circulação e ritmo das gôndolas.");
     if (fachadaGerada) pushMandatoryRef(urls, labels, fachadaGerada, logo
@@ -1048,6 +1097,9 @@ Deno.serve(async (req) => {
     const plantaResumo = floor_plan_summary || multimodal.summary || (geminiKey ? await analyzeFloorPlanGemini(geminiKey, refs.planta, nome, cidadeVal) : "");
 
     const refsComFachada = { ...refs };
+    for (const key of IMAGE_KEYS) {
+      if (project[key]) refsComFachada[key] = project[key];
+    }
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
     if (project.img_b_url) refsComFachada.entrada_gerada = project.img_b_url;
     if (project.img_c_url) refsComFachada.corredores_gerada = project.img_c_url;
