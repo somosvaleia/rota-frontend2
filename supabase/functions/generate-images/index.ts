@@ -241,7 +241,11 @@ async function urlToDirectDataUrl(url: string, maxBytes = MAX_DIRECT_IMAGE_REF_B
     const ct = res.headers.get("content-type") || "image/png";
     const bytes = new Uint8Array(await res.arrayBuffer());
     if (bytes.byteLength > maxBytes) {
-      console.warn(`[REF/direct] ignorada acima do limite (${Math.round(bytes.byteLength / 1024)}KB)`);
+      if (bytes.byteLength <= MAX_OPTIMIZABLE_REF_BYTES) {
+        console.warn(`[REF/direct] comprimindo referência (${Math.round(bytes.byteLength / 1024)}KB) para manter constância visual.`);
+        return await optimizeImageDataUrl(bytes, MAX_REFERENCE_BYTES);
+      }
+      console.warn(`[REF/direct] ignorada muito acima do limite (${Math.round(bytes.byteLength / 1024)}KB)`);
       return null;
     }
     return `data:${ct};base64,${bytesToBase64(bytes)}`;
