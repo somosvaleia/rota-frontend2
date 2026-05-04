@@ -1097,6 +1097,9 @@ Deno.serve(async (req) => {
     const plantaResumo = floor_plan_summary || multimodal.summary || (geminiKey ? await analyzeFloorPlanGemini(geminiKey, refs.planta, nome, cidadeVal) : "");
 
     const refsComFachada = { ...refs };
+    for (const key of IMAGE_KEYS) {
+      if (project[key]) refsComFachada[key] = project[key];
+    }
     if (project.img_a_url) refsComFachada.fachada_gerada = project.img_a_url;
     if (project.img_b_url) refsComFachada.entrada_gerada = project.img_b_url;
     if (project.img_c_url) refsComFachada.corredores_gerada = project.img_c_url;
