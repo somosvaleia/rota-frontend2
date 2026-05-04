@@ -30,7 +30,8 @@ const GEMINI_TEXT_MODELS = [
 const MAX_REFERENCE_BYTES = 500_000;
 const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
 const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
-const MAX_IMAGE_REFS_PER_CALL = 4;
+const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
+const MAX_IMAGE_REFS_PER_CALL = 6;
 
 // ==================== WATERMARK ====================
 
@@ -185,7 +186,12 @@ async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promis
       return `data:${ct};base64,${bytesToBase64(bytes)}`;
     }
 
-    console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Ignorando para evitar estouro de CPU.`);
+    if (bytes.byteLength <= MAX_OPTIMIZABLE_REF_BYTES) {
+      console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Comprimindo para manter constância visual.`);
+      return await optimizeImageDataUrl(bytes, maxBytes);
+    }
+
+    console.warn(`[REF] imagem muito acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Ignorando para evitar estouro de CPU.`);
     return null;
   } catch (error) {
     console.error("[REF] erro ao carregar referência:", getErrorMessage(error));
