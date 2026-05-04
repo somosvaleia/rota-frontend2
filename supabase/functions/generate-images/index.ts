@@ -610,6 +610,42 @@ function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?
   labels.push(label);
 }
 
+function chainLabelForImage(key: string): string {
+  const labels: Record<string, string> = {
+    img_a_url: "IMAGEM A / FACHADA JÁ GERADA",
+    img_b_url: "IMAGEM B / ENTRADA E CAIXAS JÁ GERADA",
+    img_c_url: "IMAGEM C / CORREDORES JÁ GERADOS",
+    img_d_url: "IMAGEM D / INTERIOR/FUNDO JÁ GERADO",
+    img_e_url: "IMAGEM E / VISTA SUPERIOR BASE JÁ GERADA",
+    img_f_url: "IMAGEM F / FARDAMENTO JÁ GERADO",
+    img_g_url: "IMAGEM G / SACOLA JÁ GERADA",
+    img_h_url: "IMAGEM H / CARRINHO JÁ GERADO",
+    img_s_url: "IMAGEM S / VISTA LATERAL JÁ GERADA",
+    img_t_url: "IMAGEM T / VISTA DRONE JÁ GERADA",
+  };
+  return labels[key] || `IMAGEM ${key.replace("img_", "").replace("_url", "").toUpperCase()} JÁ GERADA`;
+}
+
+function appendSequentialGeneratedRefs(
+  urls: string[],
+  labels: string[],
+  refs: Record<string, any>,
+  currentKey: string,
+  sceneType: "externo" | "interno" | "produto",
+) {
+  const order = ["img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url", "img_f_url", "img_g_url", "img_h_url", "img_s_url", "img_t_url", ...GONDOLA_KEYS];
+  const currentIndex = order.indexOf(currentKey);
+  const previousKeys = currentIndex > 0 ? order.slice(0, currentIndex) : [];
+  for (const key of previousKeys) {
+    const url = refs[key] as string | undefined;
+    if (!url) continue;
+    const isProduct = key === "img_f_url" || key === "img_g_url" || key === "img_h_url";
+    if (sceneType !== "produto" && isProduct) continue;
+    if (sceneType === "produto" && key !== "img_a_url" && key !== "img_f_url" && key !== "img_g_url" && key !== "img_h_url") continue;
+    pushMandatoryRef(urls, labels, url, `${chainLabelForImage(key)} — referência sequencial obrigatória. A nova imagem deve continuar a mesma planta, identidade, proporções e materiais, sem reiniciar o projeto.`);
+  }
+}
+
 function extractMeasurementLines(plantaResumo = ""): string {
   return plantaResumo
     .split(/\n+/).map((l) => l.trim()).filter(Boolean)
