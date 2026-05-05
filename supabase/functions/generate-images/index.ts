@@ -1127,11 +1127,35 @@ Deno.serve(async (req) => {
     const scenes = buildAllScenes(nome, cidadeVal, obsVal, catsVal, refsComFachada, plantaResumo, multimodal.structural, multimodal.visual);
 
     if (stage === "analyze") {
-      await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", structural_analysis_json: multimodal.structural, visual_identity_json: multimodal.visual, updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!refs.logo}, planta=${!!refs.planta}`);
+      // Se o usuário não enviou logo, gerar uma logo sugerida e salvar como referência oficial.
+      let updatedRefs = refs;
+      if (!refs?.logo) {
+        try {
+          console.log("[LOGO] Nenhuma logo enviada — gerando logo sugerida pela IA.");
+          const logoPrompt = promptLogoSugerida(nome, cidadeVal, obsVal, multimodal.visual);
+          const logoRefUrls: string[] = [];
+          const logoRefLabels: string[] = [];
+          for (const asset of collectAssetRefs(refs)) pushMandatoryRef(logoRefUrls, logoRefLabels, asset.url, asset.label);
+          let logoBase64 = await generateImage(lovableAiKey, geminiKey, logoPrompt, logoRefUrls, logoRefLabels);
+          if (logoBase64) {
+            logoBase64 = await prepareGeneratedImage(logoBase64);
+            const logoUrl = await uploadBase64Image(sb, project_id, "logo_sugerida", logoBase64);
+            if (logoUrl) {
+              updatedRefs = { ...refs, logo: logoUrl, logo_sugerida: true };
+              console.log("[LOGO] ✓ Logo sugerida gerada e salva:", logoUrl);
+            }
+          } else {
+            console.warn("[LOGO] Falha ao gerar logo sugerida; seguindo sem logo.");
+          }
+        } catch (e) {
+          console.error("[LOGO] erro:", getErrorMessage(e));
+        }
+      }
+      await sb.from("projects").update({ status: "processando", processing_status: "analyzing_assets", structural_analysis_json: multimodal.structural, visual_identity_json: multimodal.visual, imagens: updatedRefs, updated_at: new Date().toISOString() }).eq("id", project_id);
+      console.log(`[START] "${nome}" / ${cidadeVal} — ${scenes.length} cenas, logo=${!!updatedRefs.logo}, planta=${!!updatedRefs.planta}`);
       if (plantaResumo) console.log(`[START] resumo planta ATIVO`);
       scheduleNextStage({ project_id, stage: "overhead", floor_plan_summary: plantaResumo, auto_continue: true });
-      return new Response(JSON.stringify({ stage: "overhead", auto_continue: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ stage: "overhead", auto_continue: true, logo_sugerida: !refs?.logo && !!updatedRefs.logo }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     if (stage === "overhead") {
