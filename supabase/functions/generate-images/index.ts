@@ -750,6 +750,24 @@ FORMATO OBRIGATÓRIO: imagem horizontal 16:9 em HD, câmera realista na altura h
 CENA: ${scene}`;
 }
 
+function promptLogoSugerida(nome: string, cidade: string, obs: string, visual: Record<string, unknown>): string {
+  return `Crie uma LOGO oficial de supermercado de bairro brasileiro chamado "${nome}" em ${cidade || "Brasil"}.
+
+REGRAS OBRIGATÓRIAS:
+1. Estilo: logo profissional simples e funcional de mercadinho brasileiro (NÃO premium, NÃO genérico tech).
+2. Composição: símbolo + nome "${nome}" legível, tipografia forte e comercial.
+3. Cores: paleta coerente com a identidade visual sugerida pelas referências do projeto (use 2 a 3 cores principais).
+4. Fundo: BRANCO LIMPO (#FFFFFF), sem cenário, sem sombras, sem mockup.
+5. Resultado: arquivo de logo finalizado, vetorial-like, centralizado, com margens generosas.
+
+OBSERVAÇÕES DO CLIENTE: ${obs || "—"}
+
+IDENTIDADE VISUAL DE REFERÊNCIA:
+${JSON.stringify(visual, null, 2).substring(0, 4000)}
+
+PROIBIÇÕES: não escreva textos errados, não invente outro nome, não use idiomas diferentes do português, não faça mascotes complexos.`;
+}
+
 function promptVistaSuperiorBase(nome: string, cidade: string, obs: string, structural: Record<string, unknown>, visual: Record<string, unknown>, summary = ""): string {
   return `Renderização 3D FOTORREALISTA em VISTA SUPERIOR TOP-DOWN 90° do supermercado "${nome}" em ${cidade || "Brasil"}.
 
