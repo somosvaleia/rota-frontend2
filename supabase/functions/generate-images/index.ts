@@ -1127,8 +1127,23 @@ Deno.serve(async (req) => {
     if (stage === "finalize") {
       const count = IMAGE_KEYS.filter(k => Boolean(project?.[k])).length;
       const status = count > 0 ? "concluido" : "erro";
-      await sb.from("projects").update({ status, processing_status: count > 0 ? "completed" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`✓ Finalizado: ${status} (${count} imagens)`);
+      await sb.from("projects").update({ status, processing_status: count > 0 ? "generating_videos" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
+      console.log(`✓ Imagens finalizadas: ${status} (${count}). Disparando geração de vídeos...`);
+
+      // Auto-trigger geração de 3 vídeos drone via Veo
+      if (count > 0) {
+        const triggerVideos = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-videos`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            "apikey": Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          },
+          body: JSON.stringify({ project_id }),
+        }).then(r => r.text()).catch(e => console.error("trigger videos:", e));
+        if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(triggerVideos);
+      }
+
       return new Response(JSON.stringify({ status, images: count }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
