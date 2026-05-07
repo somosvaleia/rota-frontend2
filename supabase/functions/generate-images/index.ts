@@ -241,10 +241,13 @@ function extractLovableImageData(payload: any): string | null {
 }
 
 async function urlToDirectDataUrl(url: string, maxBytes = MAX_DIRECT_IMAGE_REF_BYTES): Promise<string | null> {
+  const cacheKey = `${url}|${maxBytes}`;
+  if (REF_DATAURL_CACHE.has(cacheKey)) return REF_DATAURL_CACHE.get(cacheKey) ?? null;
   try {
     const res = await fetch(url);
     if (!res.ok) {
       console.warn(`[REF/direct] fetch ${res.status}: ${url.substring(0, 80)}`);
+      REF_DATAURL_CACHE.set(cacheKey, null);
       return null;
     }
     const ct = res.headers.get("content-type") || "image/png";
@@ -252,14 +255,20 @@ async function urlToDirectDataUrl(url: string, maxBytes = MAX_DIRECT_IMAGE_REF_B
     if (bytes.byteLength > maxBytes) {
       if (bytes.byteLength <= MAX_OPTIMIZABLE_REF_BYTES) {
         console.warn(`[REF/direct] comprimindo referência (${Math.round(bytes.byteLength / 1024)}KB) para manter constância visual.`);
-        return await optimizeImageDataUrl(bytes, MAX_REFERENCE_BYTES);
+        const optimized = await optimizeImageDataUrl(bytes, MAX_REFERENCE_BYTES);
+        REF_DATAURL_CACHE.set(cacheKey, optimized);
+        return optimized;
       }
       console.warn(`[REF/direct] ignorada muito acima do limite (${Math.round(bytes.byteLength / 1024)}KB)`);
+      REF_DATAURL_CACHE.set(cacheKey, null);
       return null;
     }
-    return `data:${ct};base64,${bytesToBase64(bytes)}`;
+    const dataUrl = `data:${ct};base64,${bytesToBase64(bytes)}`;
+    REF_DATAURL_CACHE.set(cacheKey, dataUrl);
+    return dataUrl;
   } catch (error) {
     console.error("[REF/direct] erro:", getErrorMessage(error));
+    REF_DATAURL_CACHE.set(cacheKey, null);
     return null;
   }
 }
