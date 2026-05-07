@@ -405,6 +405,12 @@ async function generateImageLovable(
       if (!res.ok) {
         const err = await res.text();
         console.error(`[LOVABLE/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+        if (res.status === 402) {
+          LOVABLE_DISABLED_THIS_RUN = true;
+          console.warn("[LOVABLE/image] créditos esgotados (402). Desabilitando gateway nesta execução e usando Gemini direto.");
+          return null;
+        }
+        if ((res.status === 429 || res.status === 503) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
         if ((res.status === 404 || res.status === 400) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
         return null;
       }
