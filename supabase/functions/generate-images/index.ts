@@ -33,6 +33,15 @@ const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
 const MAX_IMAGE_REFS_PER_CALL = 6;
 
+// Cache de referências processadas (data URLs) por execução da função.
+// Evita re-fetch + re-compressão das mesmas URLs em cada uma das 18 cenas,
+// o que era a causa principal de WORKER_RESOURCE_LIMIT / CPU exceeded.
+const REF_DATAURL_CACHE = new Map<string, string | null>();
+
+// Quando o Lovable AI Gateway retorna 402 (sem créditos), pular ele em todas
+// as próximas chamadas dessa execução para não desperdiçar latência/CPU.
+let LOVABLE_DISABLED_THIS_RUN = false;
+
 // ==================== WATERMARK ====================
 
 let cachedWatermark: Image | null = null;
