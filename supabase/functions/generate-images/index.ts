@@ -181,10 +181,13 @@ async function fetchImageAsFile(url: string, filename: string, maxBytes = MAX_RE
 }
 
 async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promise<string | null> {
+  const cacheKey = `gemini|${url}|${maxBytes}`;
+  if (REF_DATAURL_CACHE.has(cacheKey)) return REF_DATAURL_CACHE.get(cacheKey) ?? null;
   try {
     const res = await fetch(url);
     if (!res.ok) {
       console.warn(`[REF] fetch ${res.status}: ${url.substring(0, 80)}`);
+      REF_DATAURL_CACHE.set(cacheKey, null);
       return null;
     }
 
@@ -192,18 +195,24 @@ async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promis
     const bytes = new Uint8Array(await res.arrayBuffer());
 
     if (bytes.byteLength <= maxBytes) {
-      return `data:${ct};base64,${bytesToBase64(bytes)}`;
+      const dataUrl = `data:${ct};base64,${bytesToBase64(bytes)}`;
+      REF_DATAURL_CACHE.set(cacheKey, dataUrl);
+      return dataUrl;
     }
 
     if (bytes.byteLength <= MAX_OPTIMIZABLE_REF_BYTES) {
       console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Comprimindo para manter constância visual.`);
-      return await optimizeImageDataUrl(bytes, maxBytes);
+      const optimized = await optimizeImageDataUrl(bytes, maxBytes);
+      REF_DATAURL_CACHE.set(cacheKey, optimized);
+      return optimized;
     }
 
     console.warn(`[REF] imagem muito acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Ignorando para evitar estouro de CPU.`);
+    REF_DATAURL_CACHE.set(cacheKey, null);
     return null;
   } catch (error) {
     console.error("[REF] erro ao carregar referência:", getErrorMessage(error));
+    REF_DATAURL_CACHE.set(cacheKey, null);
     return null;
   }
 }
