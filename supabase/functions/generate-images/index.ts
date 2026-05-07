@@ -33,6 +33,15 @@ const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
 const MAX_IMAGE_REFS_PER_CALL = 6;
 
+// Cache de referências processadas (data URLs) por execução da função.
+// Evita re-fetch + re-compressão das mesmas URLs em cada uma das 18 cenas,
+// o que era a causa principal de WORKER_RESOURCE_LIMIT / CPU exceeded.
+const REF_DATAURL_CACHE = new Map<string, string | null>();
+
+// Quando o Lovable AI Gateway retorna 402 (sem créditos), pular ele em todas
+// as próximas chamadas dessa execução para não desperdiçar latência/CPU.
+let LOVABLE_DISABLED_THIS_RUN = false;
+
 // ==================== WATERMARK ====================
 
 let cachedWatermark: Image | null = null;
@@ -172,10 +181,13 @@ async function fetchImageAsFile(url: string, filename: string, maxBytes = MAX_RE
 }
 
 async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promise<string | null> {
+  const cacheKey = `gemini|${url}|${maxBytes}`;
+  if (REF_DATAURL_CACHE.has(cacheKey)) return REF_DATAURL_CACHE.get(cacheKey) ?? null;
   try {
     const res = await fetch(url);
     if (!res.ok) {
       console.warn(`[REF] fetch ${res.status}: ${url.substring(0, 80)}`);
+      REF_DATAURL_CACHE.set(cacheKey, null);
       return null;
     }
 
@@ -183,18 +195,24 @@ async function urlToDataUrl(url: string, maxBytes = MAX_REFERENCE_BYTES): Promis
     const bytes = new Uint8Array(await res.arrayBuffer());
 
     if (bytes.byteLength <= maxBytes) {
-      return `data:${ct};base64,${bytesToBase64(bytes)}`;
+      const dataUrl = `data:${ct};base64,${bytesToBase64(bytes)}`;
+      REF_DATAURL_CACHE.set(cacheKey, dataUrl);
+      return dataUrl;
     }
 
     if (bytes.byteLength <= MAX_OPTIMIZABLE_REF_BYTES) {
       console.warn(`[REF] imagem acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Comprimindo para manter constância visual.`);
-      return await optimizeImageDataUrl(bytes, maxBytes);
+      const optimized = await optimizeImageDataUrl(bytes, maxBytes);
+      REF_DATAURL_CACHE.set(cacheKey, optimized);
+      return optimized;
     }
 
     console.warn(`[REF] imagem muito acima do limite (${Math.round(bytes.byteLength / 1024)}KB). Ignorando para evitar estouro de CPU.`);
+    REF_DATAURL_CACHE.set(cacheKey, null);
     return null;
   } catch (error) {
     console.error("[REF] erro ao carregar referência:", getErrorMessage(error));
+    REF_DATAURL_CACHE.set(cacheKey, null);
     return null;
   }
 }
@@ -232,10 +250,13 @@ function extractLovableImageData(payload: any): string | null {
 }
 
 async function urlToDirectDataUrl(url: string, maxBytes = MAX_DIRECT_IMAGE_REF_BYTES): Promise<string | null> {
+  const cacheKey = `${url}|${maxBytes}`;
+  if (REF_DATAURL_CACHE.has(cacheKey)) return REF_DATAURL_CACHE.get(cacheKey) ?? null;
   try {
     const res = await fetch(url);
     if (!res.ok) {
       console.warn(`[REF/direct] fetch ${res.status}: ${url.substring(0, 80)}`);
+      REF_DATAURL_CACHE.set(cacheKey, null);
       return null;
     }
     const ct = res.headers.get("content-type") || "image/png";
@@ -243,14 +264,20 @@ async function urlToDirectDataUrl(url: string, maxBytes = MAX_DIRECT_IMAGE_REF_B
     if (bytes.byteLength > maxBytes) {
       if (bytes.byteLength <= MAX_OPTIMIZABLE_REF_BYTES) {
         console.warn(`[REF/direct] comprimindo referência (${Math.round(bytes.byteLength / 1024)}KB) para manter constância visual.`);
-        return await optimizeImageDataUrl(bytes, MAX_REFERENCE_BYTES);
+        const optimized = await optimizeImageDataUrl(bytes, MAX_REFERENCE_BYTES);
+        REF_DATAURL_CACHE.set(cacheKey, optimized);
+        return optimized;
       }
       console.warn(`[REF/direct] ignorada muito acima do limite (${Math.round(bytes.byteLength / 1024)}KB)`);
+      REF_DATAURL_CACHE.set(cacheKey, null);
       return null;
     }
-    return `data:${ct};base64,${bytesToBase64(bytes)}`;
+    const dataUrl = `data:${ct};base64,${bytesToBase64(bytes)}`;
+    REF_DATAURL_CACHE.set(cacheKey, dataUrl);
+    return dataUrl;
   } catch (error) {
     console.error("[REF/direct] erro:", getErrorMessage(error));
+    REF_DATAURL_CACHE.set(cacheKey, null);
     return null;
   }
 }
@@ -378,6 +405,12 @@ async function generateImageLovable(
       if (!res.ok) {
         const err = await res.text();
         console.error(`[LOVABLE/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+        if (res.status === 402) {
+          LOVABLE_DISABLED_THIS_RUN = true;
+          console.warn("[LOVABLE/image] créditos esgotados (402). Desabilitando gateway nesta execução e usando Gemini direto.");
+          return null;
+        }
+        if ((res.status === 429 || res.status === 503) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
         if ((res.status === 404 || res.status === 400) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
         return null;
       }
@@ -405,10 +438,10 @@ async function generateImage(
   refUrls: string[],
   refLabels: string[],
 ): Promise<string | null> {
-  if (lovableApiKey) {
+  if (lovableApiKey && !LOVABLE_DISABLED_THIS_RUN) {
     const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels);
     if (generated) return generated;
-    console.warn("[IMAGE] Lovable AI falhou; tentando Gemini direto como fallback.");
+    if (!LOVABLE_DISABLED_THIS_RUN) console.warn("[IMAGE] Lovable AI falhou; tentando Gemini direto como fallback.");
   }
   if (geminiApiKey) return await generateImageGemini(geminiApiKey, prompt, refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL), refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL));
   return null;
