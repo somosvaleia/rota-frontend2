@@ -438,10 +438,10 @@ async function generateImage(
   refUrls: string[],
   refLabels: string[],
 ): Promise<string | null> {
-  if (lovableApiKey) {
+  if (lovableApiKey && !LOVABLE_DISABLED_THIS_RUN) {
     const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels);
     if (generated) return generated;
-    console.warn("[IMAGE] Lovable AI falhou; tentando Gemini direto como fallback.");
+    if (!LOVABLE_DISABLED_THIS_RUN) console.warn("[IMAGE] Lovable AI falhou; tentando Gemini direto como fallback.");
   }
   if (geminiApiKey) return await generateImageGemini(geminiApiKey, prompt, refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL), refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL));
   return null;
