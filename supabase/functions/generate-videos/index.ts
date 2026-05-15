@@ -13,7 +13,7 @@ const corsHeaders = {
 
 const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"] as const;
 // Imagens-base para cada vídeo: fachada, corredor central, vista geral
-const SOURCE_IMAGE_KEYS = ["img_a_url", "img_h_url", "img_e_url"] as const;
+const SOURCE_IMAGE_KEYS = ["img_a_url", "img_c_url", "img_e_url"] as const;
 const POLL_DELAY_MS = 15_000;
 const MAX_POLL_ATTEMPTS = 80; // ~20 minutos por vídeo sem manter a função presa
 const SCENE_PROMPTS = [
