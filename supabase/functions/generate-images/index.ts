@@ -1139,9 +1139,18 @@ Deno.serve(async (req) => {
 
     if (stage === "finalize") {
       const count = IMAGE_KEYS.filter(k => Boolean(project?.[k])).length;
+      const missingRequired = scenes.filter((scene) => !project?.[scene.imgKey]);
+      if (missingRequired.length > 0) {
+        const retryOffset = scenes.findIndex((scene) => !project?.[scene.imgKey]);
+        await sb.from("projects").update({ status: "processando", processing_status: "retrying_missing_images", paused_at_step: `scene_${retryOffset}`, updated_at: new Date().toISOString() }).eq("id", project_id);
+        console.warn(`[FINALIZE] ${missingRequired.length} imagens pendentes; retomando em scene_${retryOffset}: ${missingRequired.map((s) => s.imgKey).join(", ")}`);
+        scheduleNextStage({ project_id, stage: "images", scene_offset: retryOffset, floor_plan_summary: plantaResumo });
+        return new Response(JSON.stringify({ status: "retrying_missing_images", images: count, missing: missingRequired.map((s) => s.imgKey) }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const status = count > 0 ? "concluido" : "erro";
       await sb.from("projects").update({ status, processing_status: count > 0 ? "generating_videos" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`✓ Imagens finalizadas: ${status} (${count}). Disparando geração de vídeos...`);
+      console.log(`✓ Imagens finalizadas: ${status} (${count}/${scenes.length + 1}). Disparando geração de vídeos...`);
 
       // Auto-trigger geração de 3 vídeos drone via Veo
       if (count > 0) {
