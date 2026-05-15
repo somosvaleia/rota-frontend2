@@ -90,7 +90,7 @@ async function veoStart(token: string, prompt: string, image: { b64: string; mim
   if (image) instance.image = { bytesBase64Encoded: image.b64, mimeType: image.mime };
   const body = {
     instances: [instance],
-    parameters: { aspectRatio: "16:9", durationSeconds: 8, sampleCount: 1, personGeneration: "allow_adult" },
+    parameters: { aspectRatio: "16:9", sampleCount: 1, personGeneration: "allow_adult" },
   };
   const r = await fetch(url, {
     method: "POST",
@@ -103,27 +103,33 @@ async function veoStart(token: string, prompt: string, image: { b64: string; mim
   return j.name as string;
 }
 
-async function veoPoll(token: string, opName: string, maxMs = 240_000): Promise<string> {
+function extractVideoResult(payload: any): { b64?: string; gcsUri?: string; mime?: string } | null {
+  const videos = payload?.response?.videos || payload?.response?.generatedVideos || payload?.response?.predictions?.[0]?.videos;
+  const video = Array.isArray(videos) ? videos[0] : null;
+  if (!video) return null;
+  return {
+    b64: video?.bytesBase64Encoded || video?.video?.bytesBase64Encoded,
+    gcsUri: video?.gcsUri || video?.uri || video?.video?.gcsUri || video?.video?.uri,
+    mime: video?.mimeType || video?.video?.mimeType || "video/mp4",
+  };
+}
+
+async function veoPollOnce(token: string, opName: string): Promise<{ done: boolean; b64?: string; gcsUri?: string; mime?: string }> {
   const url = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/${VEO_MODEL}:fetchPredictOperation`;
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
-    await new Promise((res) => setTimeout(res, 8000));
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ operationName: opName }),
-    });
-    if (!r.ok) { console.warn("poll falhou:", r.status, await r.text()); continue; }
-    const j = await r.json();
-    if (j.done) {
-      if (j.error) throw new Error(`Veo erro: ${JSON.stringify(j.error)}`);
-      const videos = j.response?.videos || j.response?.predictions?.[0]?.videos;
-      const b64 = videos?.[0]?.bytesBase64Encoded;
-      if (!b64) throw new Error(`Veo sem bytes: ${JSON.stringify(j.response).slice(0, 400)}`);
-      return b64 as string;
-    }
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ operationName: opName }),
+  });
+  if (!r.ok) throw new Error(`poll falhou: ${r.status} ${await r.text()}`);
+  const j = await r.json();
+  if (!j.done) return { done: false };
+  if (j.error) throw new Error(`Veo erro: ${JSON.stringify(j.error)}`);
+  const result = extractVideoResult(j);
+  if (!result?.b64 && !result?.gcsUri) {
+    throw new Error(`Veo sem vídeo utilizável: ${JSON.stringify(j.response).slice(0, 500)}`);
   }
-  throw new Error("Veo polling timeout");
+  return { done: true, ...result };
 }
 
 async function uploadVideo(sb: ReturnType<typeof createClient>, projectId: string, key: string, b64: string): Promise<string | null> {
