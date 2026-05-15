@@ -14,6 +14,8 @@ const corsHeaders = {
 const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"] as const;
 // Imagens-base para cada vídeo: fachada, corredor central, vista geral
 const SOURCE_IMAGE_KEYS = ["img_a_url", "img_h_url", "img_e_url"] as const;
+const POLL_DELAY_MS = 15_000;
+const MAX_POLL_ATTEMPTS = 80; // ~20 minutos por vídeo sem manter a função presa
 const SCENE_PROMPTS = [
   "Cinematic drone shot slowly approaching the storefront facade of a Brazilian neighborhood market. Smooth forward movement, golden hour lighting, photorealistic, no text overlays, no captions, maintain exact visual identity from the reference image.",
   "Smooth steadicam-style drone shot moving through the main aisle of a Brazilian neighborhood market between gondolas. Forward dolly motion, natural store lighting, photorealistic, no text overlays, maintain exact visual identity, products and signage from the reference image.",
@@ -71,6 +73,10 @@ async function imageUrlToB64(url: string): Promise<{ b64: string; mime: string }
     let s = ""; for (const b of buf) s += String.fromCharCode(b);
     return { b64: btoa(s), mime };
   } catch { return null; }
+}
+
+function delay(ms: number) {
+  return new Promise((res) => setTimeout(res, ms));
 }
 
 // ---------- Veo: predict + poll ----------
