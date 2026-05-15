@@ -32,6 +32,8 @@ const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
 const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
 const MAX_IMAGE_REFS_PER_CALL = 6;
+const AI_IMAGE_TIMEOUT_MS = 95_000;
+const AI_TEXT_TIMEOUT_MS = 45_000;
 
 // Cache de referências processadas (data URLs) por execução da função.
 // Evita re-fetch + re-compressão das mesmas URLs em cada uma das 18 cenas,
@@ -41,6 +43,14 @@ const REF_DATAURL_CACHE = new Map<string, string | null>();
 // Quando o Lovable AI Gateway retorna 402 (sem créditos), pular ele em todas
 // as próximas chamadas dessa execução para não desperdiçar latência/CPU.
 let LOVABLE_DISABLED_THIS_RUN = false;
+
+function timeoutSignal(ms: number): AbortSignal | undefined {
+  try {
+    return AbortSignal.timeout(ms);
+  } catch (_e) {
+    return undefined;
+  }
+}
 
 // ==================== WATERMARK ====================
 
