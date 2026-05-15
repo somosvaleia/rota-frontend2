@@ -13,7 +13,9 @@ const corsHeaders = {
 
 const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"] as const;
 // Imagens-base para cada vídeo: fachada, corredor central, vista geral
-const SOURCE_IMAGE_KEYS = ["img_a_url", "img_h_url", "img_e_url"] as const;
+const SOURCE_IMAGE_KEYS = ["img_a_url", "img_c_url", "img_e_url"] as const;
+const POLL_DELAY_MS = 15_000;
+const MAX_POLL_ATTEMPTS = 80; // ~20 minutos por vídeo sem manter a função presa
 const SCENE_PROMPTS = [
   "Cinematic drone shot slowly approaching the storefront facade of a Brazilian neighborhood market. Smooth forward movement, golden hour lighting, photorealistic, no text overlays, no captions, maintain exact visual identity from the reference image.",
   "Smooth steadicam-style drone shot moving through the main aisle of a Brazilian neighborhood market between gondolas. Forward dolly motion, natural store lighting, photorealistic, no text overlays, maintain exact visual identity, products and signage from the reference image.",
@@ -73,6 +75,10 @@ async function imageUrlToB64(url: string): Promise<{ b64: string; mime: string }
   } catch { return null; }
 }
 
+function delay(ms: number) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
 // ---------- Veo: predict + poll ----------
 const PROJECT_ID = Deno.env.get("GOOGLE_CLOUD_PROJECT_ID") || "";
 const LOCATION = Deno.env.get("GOOGLE_CLOUD_LOCATION") || "us-central1";
@@ -84,7 +90,7 @@ async function veoStart(token: string, prompt: string, image: { b64: string; mim
   if (image) instance.image = { bytesBase64Encoded: image.b64, mimeType: image.mime };
   const body = {
     instances: [instance],
-    parameters: { aspectRatio: "16:9", durationSeconds: 8, sampleCount: 1, personGeneration: "allow_adult" },
+    parameters: { aspectRatio: "16:9", sampleCount: 1, personGeneration: "allow_adult" },
   };
   const r = await fetch(url, {
     method: "POST",
@@ -97,36 +103,56 @@ async function veoStart(token: string, prompt: string, image: { b64: string; mim
   return j.name as string;
 }
 
-async function veoPoll(token: string, opName: string, maxMs = 240_000): Promise<string> {
+function extractVideoResult(payload: any): { b64?: string; gcsUri?: string; mime?: string } | null {
+  const videos = payload?.response?.videos || payload?.response?.generatedVideos || payload?.response?.predictions?.[0]?.videos;
+  const video = Array.isArray(videos) ? videos[0] : null;
+  if (!video) return null;
+  return {
+    b64: video?.bytesBase64Encoded || video?.video?.bytesBase64Encoded,
+    gcsUri: video?.gcsUri || video?.uri || video?.video?.gcsUri || video?.video?.uri,
+    mime: video?.mimeType || video?.video?.mimeType || "video/mp4",
+  };
+}
+
+async function veoPollOnce(token: string, opName: string): Promise<{ done: boolean; b64?: string; gcsUri?: string; mime?: string }> {
   const url = `https://${LOCATION}-aiplatform.googleapis.com/v1/projects/${PROJECT_ID}/locations/${LOCATION}/publishers/google/models/${VEO_MODEL}:fetchPredictOperation`;
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
-    await new Promise((res) => setTimeout(res, 8000));
-    const r = await fetch(url, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ operationName: opName }),
-    });
-    if (!r.ok) { console.warn("poll falhou:", r.status, await r.text()); continue; }
-    const j = await r.json();
-    if (j.done) {
-      if (j.error) throw new Error(`Veo erro: ${JSON.stringify(j.error)}`);
-      const videos = j.response?.videos || j.response?.predictions?.[0]?.videos;
-      const b64 = videos?.[0]?.bytesBase64Encoded;
-      if (!b64) throw new Error(`Veo sem bytes: ${JSON.stringify(j.response).slice(0, 400)}`);
-      return b64 as string;
-    }
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ operationName: opName }),
+  });
+  if (!r.ok) throw new Error(`poll falhou: ${r.status} ${await r.text()}`);
+  const j = await r.json();
+  if (!j.done) return { done: false };
+  if (j.error) throw new Error(`Veo erro: ${JSON.stringify(j.error)}`);
+  const result = extractVideoResult(j);
+  if (!result?.b64 && !result?.gcsUri) {
+    throw new Error(`Veo sem vídeo utilizável: ${JSON.stringify(j.response).slice(0, 500)}`);
   }
-  throw new Error("Veo polling timeout");
+  return { done: true, ...result };
 }
 
 async function uploadVideo(sb: ReturnType<typeof createClient>, projectId: string, key: string, b64: string): Promise<string | null> {
   const bin = atob(b64); const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return uploadVideoBytes(sb, projectId, key, bytes);
+}
+
+async function uploadVideoBytes(sb: ReturnType<typeof createClient>, projectId: string, key: string, bytes: Uint8Array): Promise<string | null> {
   const path = `${projectId}/videos/${key}_${Date.now()}.mp4`;
   const { error } = await sb.storage.from("rota-referencias").upload(path, bytes, { contentType: "video/mp4", upsert: true });
   if (error) { console.error("upload video:", error.message); return null; }
   return sb.storage.from("rota-referencias").getPublicUrl(path).data.publicUrl;
+}
+
+async function uploadVideoFromGcsUri(sb: ReturnType<typeof createClient>, projectId: string, key: string, token: string, gcsUri: string): Promise<string | null> {
+  const match = gcsUri.match(/^gs:\/\/([^/]+)\/(.+)$/);
+  if (!match) return null;
+  const [, bucket, object] = match;
+  const url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(object)}?alt=media`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`download GCS falhou: ${r.status} ${await r.text()}`);
+  return uploadVideoBytes(sb, projectId, key, new Uint8Array(await r.arrayBuffer()));
 }
 
 // ---------- Self-invoke ----------
@@ -145,8 +171,11 @@ async function invokeNext(payload: Record<string, unknown>) {
     else await r.text();
   } catch (e) { console.error("self-invoke vídeo erro:", e); }
 }
-function scheduleNext(payload: Record<string, unknown>) {
-  const t = invokeNext(payload).catch((e) => console.error(e));
+function scheduleNext(payload: Record<string, unknown>, delayMs = 0) {
+  const t = (async () => {
+    if (delayMs > 0) await delay(delayMs);
+    await invokeNext(payload);
+  })().catch((e) => console.error(e));
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(t);
 }
 
@@ -159,6 +188,8 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const project_id: string = body.project_id;
     const scene_index: number = typeof body.scene_index === "number" ? body.scene_index : -1;
+    const operation_name: string | undefined = typeof body.operation_name === "string" ? body.operation_name : undefined;
+    const poll_attempt: number = typeof body.poll_attempt === "number" ? body.poll_attempt : 0;
 
     if (!project_id) return new Response(JSON.stringify({ error: "project_id obrigatório" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     if (!PROJECT_ID) return new Response(JSON.stringify({ error: "GOOGLE_CLOUD_PROJECT_ID não configurado" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -185,7 +216,38 @@ Deno.serve(async (req) => {
 
     console.log(`[veo] cena ${scene_index} src=${sourceKey} -> ${targetKey}`);
 
-    // Processa em background e responde 202 imediatamente
+    if (operation_name) {
+      const work = (async () => {
+        try {
+          const token = await getAccessToken();
+          const result = await veoPollOnce(token, operation_name);
+          if (!result.done) {
+            if (poll_attempt >= MAX_POLL_ATTEMPTS) throw new Error("Veo polling timeout");
+            scheduleNext({ project_id, scene_index, operation_name, poll_attempt: poll_attempt + 1 }, POLL_DELAY_MS);
+            return;
+          }
+
+          const url = result.b64
+            ? await uploadVideo(sb, project_id, targetKey, result.b64)
+            : result.gcsUri
+              ? await uploadVideoFromGcsUri(sb, project_id, targetKey, token, result.gcsUri)
+              : null;
+          if (url) {
+            await sb.from("projects").update({ [targetKey]: url, updated_at: new Date().toISOString() }).eq("id", project_id);
+            console.log(`[veo] cena ${scene_index} OK: ${url}`);
+          }
+          scheduleNext({ project_id, scene_index: scene_index + 1 });
+        } catch (e) {
+          console.error(`[veo] cena ${scene_index} poll erro:`, e instanceof Error ? e.message : e);
+          await sb.from("projects").update({ processing_status: `video_${scene_index + 1}_error`, updated_at: new Date().toISOString() }).eq("id", project_id);
+          scheduleNext({ project_id, scene_index: scene_index + 1 });
+        }
+      })();
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work);
+      return new Response(JSON.stringify({ success: true, polling: true, scene: scene_index }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // Inicia a operação e agenda polling assíncrono. Não segura a função por minutos.
     const work = (async () => {
       try {
         const token = await getAccessToken();
@@ -193,15 +255,10 @@ Deno.serve(async (req) => {
         const prompt = `${SCENE_PROMPTS[scene_index]} Market name: ${project.nome_mercado}.`;
         const opName = await veoStart(token, prompt, img);
         console.log(`[veo] cena ${scene_index} operação: ${opName}`);
-        const b64 = await veoPoll(token, opName);
-        const url = await uploadVideo(sb, project_id, targetKey, b64);
-        if (url) {
-          await sb.from("projects").update({ [targetKey]: url, updated_at: new Date().toISOString() }).eq("id", project_id);
-          console.log(`[veo] cena ${scene_index} OK: ${url}`);
-        }
+        scheduleNext({ project_id, scene_index, operation_name: opName, poll_attempt: 0 }, POLL_DELAY_MS);
       } catch (e) {
         console.error(`[veo] cena ${scene_index} erro:`, e instanceof Error ? e.message : e);
-      } finally {
+        await sb.from("projects").update({ processing_status: `video_${scene_index + 1}_error`, updated_at: new Date().toISOString() }).eq("id", project_id);
         scheduleNext({ project_id, scene_index: scene_index + 1 });
       }
     })();

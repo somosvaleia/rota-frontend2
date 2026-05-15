@@ -158,8 +158,11 @@ export default function ProjectDetail() {
     .filter((v) => v.url);
 
   const hasMedia = images.length > 0 || videos.length > 0;
-  const totalExpectedImages = 8 + (Array.isArray(project.categorias) ? project.categorias.length : 0);
-  const totalExpectedVideos = 2;
+  const enabledCategories = Array.isArray(project.categorias)
+    ? project.categorias.filter((c: any) => c?.enabled !== false).length
+    : 0;
+  const totalExpectedImages = Math.max(11, 10 + enabledCategories);
+  const totalExpectedVideos = 3;
 
   return (
     <AppLayout>

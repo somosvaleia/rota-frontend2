@@ -32,6 +32,8 @@ const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
 const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
 const MAX_IMAGE_REFS_PER_CALL = 6;
+const AI_IMAGE_TIMEOUT_MS = 95_000;
+const AI_TEXT_TIMEOUT_MS = 45_000;
 
 // Cache de referências processadas (data URLs) por execução da função.
 // Evita re-fetch + re-compressão das mesmas URLs em cada uma das 18 cenas,
@@ -41,6 +43,14 @@ const REF_DATAURL_CACHE = new Map<string, string | null>();
 // Quando o Lovable AI Gateway retorna 402 (sem créditos), pular ele em todas
 // as próximas chamadas dessa execução para não desperdiçar latência/CPU.
 let LOVABLE_DISABLED_THIS_RUN = false;
+
+function timeoutSignal(ms: number): AbortSignal | undefined {
+  try {
+    return AbortSignal.timeout(ms);
+  } catch (_e) {
+    return undefined;
+  }
+}
 
 // ==================== WATERMARK ====================
 
@@ -343,6 +353,7 @@ async function generateImageGemini(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
+        signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -400,6 +411,7 @@ async function generateImageLovable(
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
+        signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -438,12 +450,16 @@ async function generateImage(
   refUrls: string[],
   refLabels: string[],
 ): Promise<string | null> {
+  if (geminiApiKey) {
+    const generated = await generateImageGemini(geminiApiKey, prompt, refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL), refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL));
+    if (generated) return generated;
+    console.warn("[IMAGE] Gemini direto falhou; tentando Lovable AI Gateway como fallback.");
+  }
   if (lovableApiKey && !LOVABLE_DISABLED_THIS_RUN) {
     const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels);
     if (generated) return generated;
-    if (!LOVABLE_DISABLED_THIS_RUN) console.warn("[IMAGE] Lovable AI falhou; tentando Gemini direto como fallback.");
+    if (!LOVABLE_DISABLED_THIS_RUN) console.warn("[IMAGE] Lovable AI falhou.");
   }
-  if (geminiApiKey) return await generateImageGemini(geminiApiKey, prompt, refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL), refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL));
   return null;
 }
 
@@ -537,7 +553,7 @@ Não ignore nenhuma referência. Se algum item não existir, marque como "não e
   for (let i = 0; i < GEMINI_TEXT_MODELS.length; i++) {
     const model = GEMINI_TEXT_MODELS[i];
     try {
-      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody });
+      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody, signal: timeoutSignal(AI_TEXT_TIMEOUT_MS) });
       if (!res.ok) {
         const errText = await res.text();
         const shouldFallback = res.status === 404 || (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(errText));
@@ -608,6 +624,7 @@ Se algo não estiver claro, diga "não identificado".`,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: requestBody,
+        signal: timeoutSignal(AI_TEXT_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -855,6 +872,17 @@ interface SceneTask {
 const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url","img_n_url","img_o_url","img_p_url","img_q_url","img_r_url"];
 const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...GONDOLA_KEYS]);
 const MIN_SCENE_TASKS = 10; // + img_e_url/overhead = mínimo real de 10+ imagens no projeto
+
+function buildExpectedSceneKeys(categorias: any[]): string[] {
+  const keys = ["img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_t_url", "img_f_url", "img_g_url", "img_h_url", "img_s_url"];
+  const cats = Array.isArray(categorias) ? categorias.filter((c: any) => c?.enabled !== false) : [];
+  for (let i = 0; i < cats.length && i < GONDOLA_KEYS.length; i++) keys.push(GONDOLA_KEYS[i]);
+  for (const key of GONDOLA_KEYS) {
+    if (keys.length >= MIN_SCENE_TASKS) break;
+    if (!keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
 
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = "", structural: Record<string, unknown> = {}, visual: Record<string, unknown> = {}): SceneTask[] {
   const logo = refs.logo as string | undefined;
@@ -1126,9 +1154,19 @@ Deno.serve(async (req) => {
 
     if (stage === "finalize") {
       const count = IMAGE_KEYS.filter(k => Boolean(project?.[k])).length;
+      const expectedKeys = buildExpectedSceneKeys(catsVal);
+      const missingRequired = expectedKeys.filter((key) => !project?.[key]);
+      if (missingRequired.length > 0) {
+        const retryOffset = Math.max(0, expectedKeys.indexOf(missingRequired[0]));
+        await sb.from("projects").update({ status: "processando", processing_status: "retrying_missing_images", paused_at_step: `scene_${retryOffset}`, updated_at: new Date().toISOString() }).eq("id", project_id);
+        console.warn(`[FINALIZE] ${missingRequired.length} imagens pendentes; retomando em scene_${retryOffset}: ${missingRequired.join(", ")}`);
+        scheduleNextStage({ project_id, stage: "images", scene_offset: retryOffset });
+        return new Response(JSON.stringify({ status: "retrying_missing_images", images: count, missing: missingRequired }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
       const status = count > 0 ? "concluido" : "erro";
       await sb.from("projects").update({ status, processing_status: count > 0 ? "generating_videos" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`✓ Imagens finalizadas: ${status} (${count}). Disparando geração de vídeos...`);
+      console.log(`✓ Imagens finalizadas: ${status} (${count}/${expectedKeys.length + 1}). Disparando geração de vídeos...`);
 
       // Auto-trigger geração de 3 vídeos drone via Veo
       if (count > 0) {
@@ -1229,9 +1267,11 @@ Deno.serve(async (req) => {
       const { data: gate } = await sb.from("projects").select("processing_status").eq("id", project_id).single();
       if (gate?.processing_status === "paused") return new Response(JSON.stringify({ stage: "paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       await sb.from("projects").update({ processing_status: "generating_scenes", paused_at_step: `scene_${scene_offset}`, updated_at: new Date().toISOString() }).eq("id", project_id);
-      const current = scenes[scene_offset];
+      const nextPendingOffset = scenes.findIndex((scene, index) => index >= scene_offset && !project?.[scene.imgKey]);
+      const currentOffset = nextPendingOffset >= 0 ? nextPendingOffset : scene_offset;
+      const current = scenes[currentOffset];
       if (current) {
-        console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
+        console.log(`[${currentOffset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
         try {
           if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && !refsComFachada.planta) {
             console.warn(`[INTERNO] ${current.sceneName} sem planta enviada; usando apenas referências disponíveis e observações.`);
@@ -1253,7 +1293,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const next = scene_offset + 1;
+      const next = currentOffset + 1;
       if (next < scenes.length) {
         scheduleNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo });
         return new Response(JSON.stringify({ stage: "images", scene: next, total: scenes.length }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
