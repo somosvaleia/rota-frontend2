@@ -869,6 +869,17 @@ const GONDOLA_KEYS = ["img_i_url","img_j_url","img_k_url","img_l_url","img_m_url
 const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...GONDOLA_KEYS]);
 const MIN_SCENE_TASKS = 10; // + img_e_url/overhead = mínimo real de 10+ imagens no projeto
 
+function buildExpectedSceneKeys(categorias: any[]): string[] {
+  const keys = ["img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_t_url", "img_f_url", "img_g_url", "img_h_url", "img_s_url"];
+  const cats = Array.isArray(categorias) ? categorias.filter((c: any) => c?.enabled !== false) : [];
+  for (let i = 0; i < cats.length && i < GONDOLA_KEYS.length; i++) keys.push(GONDOLA_KEYS[i]);
+  for (const key of GONDOLA_KEYS) {
+    if (keys.length >= MIN_SCENE_TASKS) break;
+    if (!keys.includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
 function buildAllScenes(nome: string, cidade: string, obs: string, categorias: any[], refs: Record<string, any>, plantaResumo = "", structural: Record<string, unknown> = {}, visual: Record<string, unknown> = {}): SceneTask[] {
   const logo = refs.logo as string | undefined;
   const tasks: SceneTask[] = [];
