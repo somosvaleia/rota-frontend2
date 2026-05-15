@@ -1150,7 +1150,8 @@ Deno.serve(async (req) => {
 
     if (stage === "finalize") {
       const count = IMAGE_KEYS.filter(k => Boolean(project?.[k])).length;
-      const missingRequired = scenes.filter((scene) => !project?.[scene.imgKey]);
+      const expectedKeys = new Set(buildExpectedSceneKeys(catsVal));
+      const missingRequired = scenes.filter((scene) => expectedKeys.has(scene.imgKey) && !project?.[scene.imgKey]);
       if (missingRequired.length > 0) {
         const retryOffset = scenes.findIndex((scene) => !project?.[scene.imgKey]);
         await sb.from("projects").update({ status: "processando", processing_status: "retrying_missing_images", paused_at_step: `scene_${retryOffset}`, updated_at: new Date().toISOString() }).eq("id", project_id);
