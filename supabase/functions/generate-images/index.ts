@@ -1242,9 +1242,11 @@ Deno.serve(async (req) => {
       const { data: gate } = await sb.from("projects").select("processing_status").eq("id", project_id).single();
       if (gate?.processing_status === "paused") return new Response(JSON.stringify({ stage: "paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       await sb.from("projects").update({ processing_status: "generating_scenes", paused_at_step: `scene_${scene_offset}`, updated_at: new Date().toISOString() }).eq("id", project_id);
-      const current = scenes[scene_offset];
+      const nextPendingOffset = scenes.findIndex((scene, index) => index >= scene_offset && !project?.[scene.imgKey]);
+      const currentOffset = nextPendingOffset >= 0 ? nextPendingOffset : scene_offset;
+      const current = scenes[currentOffset];
       if (current) {
-        console.log(`[${scene_offset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
+        console.log(`[${currentOffset + 1}/${scenes.length}] ${current.sceneName} (${current.refUrls.length} refs)`);
         try {
           if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && !refsComFachada.planta) {
             console.warn(`[INTERNO] ${current.sceneName} sem planta enviada; usando apenas referências disponíveis e observações.`);
@@ -1266,7 +1268,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const next = scene_offset + 1;
+      const next = currentOffset + 1;
       if (next < scenes.length) {
         scheduleNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo });
         return new Response(JSON.stringify({ stage: "images", scene: next, total: scenes.length }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
