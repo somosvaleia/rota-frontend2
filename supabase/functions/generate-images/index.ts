@@ -353,6 +353,7 @@ async function generateImageGemini(
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
+        signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
       });
 
       if (!res.ok) {
@@ -410,6 +411,7 @@ async function generateImageLovable(
         method: "POST",
         headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
+        signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
       });
 
       if (!res.ok) {
