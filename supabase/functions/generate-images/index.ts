@@ -549,7 +549,7 @@ Não ignore nenhuma referência. Se algum item não existir, marque como "não e
   for (let i = 0; i < GEMINI_TEXT_MODELS.length; i++) {
     const model = GEMINI_TEXT_MODELS[i];
     try {
-      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody });
+      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody, signal: timeoutSignal(AI_TEXT_TIMEOUT_MS) });
       if (!res.ok) {
         const errText = await res.text();
         const shouldFallback = res.status === 404 || (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(errText));
@@ -620,6 +620,7 @@ Se algo não estiver claro, diga "não identificado".`,
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: requestBody,
+        signal: timeoutSignal(AI_TEXT_TIMEOUT_MS),
       });
 
       if (!res.ok) {
