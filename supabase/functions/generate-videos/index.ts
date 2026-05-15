@@ -135,10 +135,24 @@ async function veoPollOnce(token: string, opName: string): Promise<{ done: boole
 async function uploadVideo(sb: ReturnType<typeof createClient>, projectId: string, key: string, b64: string): Promise<string | null> {
   const bin = atob(b64); const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return uploadVideoBytes(sb, projectId, key, bytes);
+}
+
+async function uploadVideoBytes(sb: ReturnType<typeof createClient>, projectId: string, key: string, bytes: Uint8Array): Promise<string | null> {
   const path = `${projectId}/videos/${key}_${Date.now()}.mp4`;
   const { error } = await sb.storage.from("rota-referencias").upload(path, bytes, { contentType: "video/mp4", upsert: true });
   if (error) { console.error("upload video:", error.message); return null; }
   return sb.storage.from("rota-referencias").getPublicUrl(path).data.publicUrl;
+}
+
+async function uploadVideoFromGcsUri(sb: ReturnType<typeof createClient>, projectId: string, key: string, token: string, gcsUri: string): Promise<string | null> {
+  const match = gcsUri.match(/^gs:\/\/([^/]+)\/(.+)$/);
+  if (!match) return null;
+  const [, bucket, object] = match;
+  const url = `https://storage.googleapis.com/storage/v1/b/${bucket}/o/${encodeURIComponent(object)}?alt=media`;
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`download GCS falhou: ${r.status} ${await r.text()}`);
+  return uploadVideoBytes(sb, projectId, key, new Uint8Array(await r.arrayBuffer()));
 }
 
 // ---------- Self-invoke ----------
@@ -157,8 +171,11 @@ async function invokeNext(payload: Record<string, unknown>) {
     else await r.text();
   } catch (e) { console.error("self-invoke vídeo erro:", e); }
 }
-function scheduleNext(payload: Record<string, unknown>) {
-  const t = invokeNext(payload).catch((e) => console.error(e));
+function scheduleNext(payload: Record<string, unknown>, delayMs = 0) {
+  const t = (async () => {
+    if (delayMs > 0) await delay(delayMs);
+    await invokeNext(payload);
+  })().catch((e) => console.error(e));
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(t);
 }
 
