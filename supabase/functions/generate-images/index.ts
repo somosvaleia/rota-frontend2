@@ -27,12 +27,12 @@ const GEMINI_TEXT_MODELS = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
 ];
-const MAX_REFERENCE_BYTES = 500_000;
-const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
-const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
+const MAX_REFERENCE_BYTES = 220_000;
+const IMAGE_SIZE_STEPS = [960, 768, 640, 512, 448, 384, 320];
+const MAX_DIRECT_IMAGE_REF_BYTES = 420_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
-const MAX_IMAGE_REFS_PER_CALL = 6;
-const AI_IMAGE_TIMEOUT_MS = 95_000;
+const MAX_IMAGE_REFS_PER_CALL = 4;
+const AI_IMAGE_TIMEOUT_MS = 75_000;
 const AI_TEXT_TIMEOUT_MS = 45_000;
 
 // Cache de referências processadas (data URLs) por execução da função.
@@ -119,11 +119,12 @@ async function optimizeImageDataUrl(bytes: Uint8Array, maxBytes = MAX_REFERENCE_
 
     for (const maxDimension of IMAGE_SIZE_STEPS) {
       const resized = resizeToFit(decoded, maxDimension);
-      const encoded = await resized.encode(1);
-
-      if (encoded.byteLength <= maxBytes || maxDimension === IMAGE_SIZE_STEPS[IMAGE_SIZE_STEPS.length - 1]) {
-        console.log(`[REF] imagem otimizada para ${resized.width}x${resized.height} (${Math.round(encoded.byteLength / 1024)}KB)`);
-        return `data:image/png;base64,${bytesToBase64(encoded)}`;
+      for (const quality of [74, 66, 58, 50, 42]) {
+        const encoded = await resized.encodeJPEG(quality);
+        if (encoded.byteLength <= maxBytes || (maxDimension === IMAGE_SIZE_STEPS[IMAGE_SIZE_STEPS.length - 1] && quality === 42)) {
+          console.log(`[REF] imagem otimizada para ${resized.width}x${resized.height} (${Math.round(encoded.byteLength / 1024)}KB, jpeg q${quality})`);
+          return `data:image/jpeg;base64,${bytesToBase64(encoded)}`;
+        }
       }
     }
 
@@ -321,8 +322,8 @@ async function generateImageGemini(
     ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
     : prompt;
 
-  const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 30000) }];
-  const normalizedRefs = await Promise.all(refUrls.slice(0, 10).map((url) => urlToDataUrl(url)));
+  const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 18000) }];
+  const normalizedRefs = await Promise.all(refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL).map((url) => urlToDataUrl(url)));
 
   normalizedRefs.forEach((dataUrl, index) => {
     if (dataUrl) {
@@ -339,7 +340,7 @@ async function generateImageGemini(
     contents: [{ role: "user", parts }],
     generationConfig: {
       responseModalities: ["TEXT", "IMAGE"],
-      maxOutputTokens: 8192,
+      maxOutputTokens: 4096,
     },
   });
 
@@ -874,7 +875,7 @@ const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...G
 const MIN_SCENE_TASKS = 10; // + img_e_url/overhead = mínimo real de 10+ imagens no projeto
 
 function buildExpectedSceneKeys(categorias: any[]): string[] {
-  const keys = ["img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_t_url", "img_f_url", "img_g_url", "img_h_url", "img_s_url"];
+  const keys = ["img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url", "img_t_url", "img_f_url", "img_g_url", "img_h_url", "img_s_url"];
   const cats = Array.isArray(categorias) ? categorias.filter((c: any) => c?.enabled !== false) : [];
   for (let i = 0; i < cats.length && i < GONDOLA_KEYS.length; i++) keys.push(GONDOLA_KEYS[i]);
   for (const key of GONDOLA_KEYS) {
@@ -1106,6 +1107,13 @@ Deno.serve(async (req) => {
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+    const isSingleImageEdit = tipo === "edicao" && image_key && image_url && customPrompt;
+    if (!isSingleImageEdit && stage !== "start" && body.__queued !== true) {
+      const queued = invokeNextStage({ ...body, __queued: true }).catch((e) => console.error("Queue stage erro:", getErrorMessage(e)));
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(queued);
+      return new Response(JSON.stringify({ stage, queued: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (control_action === "pause") {
       await sb.from("projects").update({ processing_status: "paused", paused_at_step: stage, updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ success: true, processing_status: "paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -1166,7 +1174,7 @@ Deno.serve(async (req) => {
 
       const status = count > 0 ? "concluido" : "erro";
       await sb.from("projects").update({ status, processing_status: count > 0 ? "generating_videos" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`✓ Imagens finalizadas: ${status} (${count}/${expectedKeys.length + 1}). Disparando geração de vídeos...`);
+      console.log(`✓ Imagens finalizadas: ${status} (${count}/${expectedKeys.length}). Disparando geração de vídeos...`);
 
       // Auto-trigger geração de 3 vídeos drone via Veo
       if (count > 0) {
