@@ -1114,6 +1114,12 @@ Deno.serve(async (req) => {
 
     const sb = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
+    if (tipo !== "edicao" && stage !== "start" && body.__queued !== true) {
+      const queued = invokeNextStage({ ...body, __queued: true }).catch((e) => console.error("Queue stage erro:", getErrorMessage(e)));
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(queued);
+      return new Response(JSON.stringify({ stage, queued: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     if (control_action === "pause") {
       await sb.from("projects").update({ processing_status: "paused", paused_at_step: stage, updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ success: true, processing_status: "paused" }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
