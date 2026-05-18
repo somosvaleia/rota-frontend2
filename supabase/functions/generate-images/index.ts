@@ -27,12 +27,12 @@ const GEMINI_TEXT_MODELS = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
 ];
-const MAX_REFERENCE_BYTES = 500_000;
-const IMAGE_SIZE_STEPS = [1400, 1280, 1152, 1024, 896, 768, 640];
-const MAX_DIRECT_IMAGE_REF_BYTES = 900_000;
+const MAX_REFERENCE_BYTES = 220_000;
+const IMAGE_SIZE_STEPS = [960, 768, 640, 512, 448, 384, 320];
+const MAX_DIRECT_IMAGE_REF_BYTES = 420_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
-const MAX_IMAGE_REFS_PER_CALL = 6;
-const AI_IMAGE_TIMEOUT_MS = 95_000;
+const MAX_IMAGE_REFS_PER_CALL = 4;
+const AI_IMAGE_TIMEOUT_MS = 75_000;
 const AI_TEXT_TIMEOUT_MS = 45_000;
 
 // Cache de referências processadas (data URLs) por execução da função.
@@ -119,11 +119,12 @@ async function optimizeImageDataUrl(bytes: Uint8Array, maxBytes = MAX_REFERENCE_
 
     for (const maxDimension of IMAGE_SIZE_STEPS) {
       const resized = resizeToFit(decoded, maxDimension);
-      const encoded = await resized.encode(1);
-
-      if (encoded.byteLength <= maxBytes || maxDimension === IMAGE_SIZE_STEPS[IMAGE_SIZE_STEPS.length - 1]) {
-        console.log(`[REF] imagem otimizada para ${resized.width}x${resized.height} (${Math.round(encoded.byteLength / 1024)}KB)`);
-        return `data:image/png;base64,${bytesToBase64(encoded)}`;
+      for (const quality of [74, 66, 58, 50, 42]) {
+        const encoded = await resized.encodeJPEG(quality);
+        if (encoded.byteLength <= maxBytes || (maxDimension === IMAGE_SIZE_STEPS[IMAGE_SIZE_STEPS.length - 1] && quality === 42)) {
+          console.log(`[REF] imagem otimizada para ${resized.width}x${resized.height} (${Math.round(encoded.byteLength / 1024)}KB, jpeg q${quality})`);
+          return `data:image/jpeg;base64,${bytesToBase64(encoded)}`;
+        }
       }
     }
 
