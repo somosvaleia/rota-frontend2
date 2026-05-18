@@ -1180,7 +1180,7 @@ Deno.serve(async (req) => {
 
       const status = count > 0 ? "concluido" : "erro";
       await sb.from("projects").update({ status, processing_status: count > 0 ? "generating_videos" : "error", updated_at: new Date().toISOString() }).eq("id", project_id);
-      console.log(`✓ Imagens finalizadas: ${status} (${count}/${expectedKeys.length + 1}). Disparando geração de vídeos...`);
+      console.log(`✓ Imagens finalizadas: ${status} (${count}/${expectedKeys.length}). Disparando geração de vídeos...`);
 
       // Auto-trigger geração de 3 vídeos drone via Veo
       if (count > 0) {
