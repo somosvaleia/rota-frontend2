@@ -661,6 +661,13 @@ function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?
   labels.push(label);
 }
 
+function limitRefs(urls: string[], labels: string[], maxRefs = MAX_IMAGE_REFS_PER_CALL): { urls: string[]; labels: string[] } {
+  return {
+    urls: urls.slice(0, maxRefs),
+    labels: labels.slice(0, maxRefs),
+  };
+}
+
 function chainLabelForImage(key: string): string {
   const labels: Record<string, string> = {
     img_a_url: "IMAGEM A / FACHADA JÁ GERADA",
