@@ -882,7 +882,7 @@ const INTERNAL_IMAGE_KEYS = new Set(["img_b_url", "img_c_url", "img_d_url", ...G
 const MIN_SCENE_TASKS = 10; // + img_e_url/overhead = mínimo real de 10+ imagens no projeto
 
 function buildExpectedSceneKeys(categorias: any[]): string[] {
-  const keys = ["img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_t_url", "img_f_url", "img_g_url", "img_h_url", "img_s_url"];
+  const keys = ["img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url", "img_t_url", "img_f_url", "img_g_url", "img_h_url", "img_s_url"];
   const cats = Array.isArray(categorias) ? categorias.filter((c: any) => c?.enabled !== false) : [];
   for (let i = 0; i < cats.length && i < GONDOLA_KEYS.length; i++) keys.push(GONDOLA_KEYS[i]);
   for (const key of GONDOLA_KEYS) {
