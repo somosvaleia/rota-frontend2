@@ -322,8 +322,8 @@ async function generateImageGemini(
     ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
     : prompt;
 
-  const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 30000) }];
-  const normalizedRefs = await Promise.all(refUrls.slice(0, 10).map((url) => urlToDataUrl(url)));
+  const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 18000) }];
+  const normalizedRefs = await Promise.all(refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL).map((url) => urlToDataUrl(url)));
 
   normalizedRefs.forEach((dataUrl, index) => {
     if (dataUrl) {
@@ -340,7 +340,7 @@ async function generateImageGemini(
     contents: [{ role: "user", parts }],
     generationConfig: {
       responseModalities: ["TEXT", "IMAGE"],
-      maxOutputTokens: 8192,
+      maxOutputTokens: 4096,
     },
   });
 
