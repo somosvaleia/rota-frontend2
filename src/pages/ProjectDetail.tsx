@@ -199,6 +199,15 @@ export default function ProjectDetail() {
               variant="outline"
               size="sm"
               className="gap-2"
+              onClick={() => setShowShareDialog(true)}
+            >
+              <Share2 className="w-4 h-4" />
+              Compartilhar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
               onClick={() => setShowEditDialog(true)}
             >
               <Pencil className="w-4 h-4" />
