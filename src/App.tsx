@@ -10,6 +10,7 @@ import Index from "./pages/Index";
 import NewProject from "./pages/NewProject";
 import ProjectDetail from "./pages/ProjectDetail";
 import Login from "./pages/Login";
+import SharedProject from "./pages/SharedProject";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
