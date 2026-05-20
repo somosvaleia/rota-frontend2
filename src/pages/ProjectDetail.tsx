@@ -407,6 +407,73 @@ export default function ProjectDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Share dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compartilhar projeto</DialogTitle>
+            <DialogDescription>
+              Ative o link público para que qualquer pessoa com o endereço possa visualizar o resultado (somente leitura). A planta baixa e as mídias geradas serão exibidas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">Link público ativado</p>
+                <p className="text-xs text-muted-foreground">Desative a qualquer momento para revogar o acesso.</p>
+              </div>
+              <Switch
+                checked={!!project.share_enabled}
+                disabled={shareSaving}
+                onCheckedChange={async (checked) => {
+                  setShareSaving(true);
+                  const { data, error } = await supabase
+                    .from("projects")
+                    .update({ share_enabled: checked } as any)
+                    .eq("id", project.id)
+                    .select()
+                    .single();
+                  setShareSaving(false);
+                  if (error) {
+                    toast.error("Erro ao atualizar compartilhamento.");
+                  } else {
+                    setProject(data);
+                    toast.success(checked ? "Compartilhamento ativado." : "Compartilhamento desativado.");
+                  }
+                }}
+              />
+            </div>
+            {project.share_enabled && project.share_token && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">Link de compartilhamento</label>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={`${window.location.origin}/share/${project.share_token}`}
+                    className="flex-1 px-3 py-2 text-sm rounded-md border bg-muted/40 font-mono truncate"
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 shrink-0"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(`${window.location.origin}/share/${project.share_token}`);
+                      setShareCopied(true);
+                      toast.success("Link copiado!");
+                      setTimeout(() => setShareCopied(false), 2000);
+                    }}
+                  >
+                    {shareCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    Copiar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Edit Project */}
       {showEditDialog && (
         <EditProjectDialog
