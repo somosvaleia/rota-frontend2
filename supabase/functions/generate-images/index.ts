@@ -319,7 +319,7 @@ async function generateImageGemini(
   refLabels: string[],
 ): Promise<string | null> {
   const labeledPrompt = refUrls.length > 0
-    ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
+    ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem de prioridade):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nREGRA DE PRIORIDADE: as REFERÊNCIAS ENVIADAS PELO CLIENTE (planta, fachada, interior, corredor, caixa, vista superior, anexos) são VINCULANTES — copie cores, materiais, mobiliário, iluminação, comunicação visual, gôndolas e arquitetura DESSAS imagens. Não invente identidade visual nova; extraia tudo das referências enviadas. Mantenha CONSTÂNCIA TOTAL com elas.`
     : prompt;
 
   const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 18000) }];
