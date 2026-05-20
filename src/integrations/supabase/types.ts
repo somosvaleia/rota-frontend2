@@ -48,6 +48,8 @@ export type Database = {
           overhead_prompt: string | null
           paused_at_step: string | null
           processing_status: string
+          share_enabled: boolean
+          share_token: string | null
           status: string
           structural_analysis_json: Json
           updated_at: string
@@ -93,6 +95,8 @@ export type Database = {
           overhead_prompt?: string | null
           paused_at_step?: string | null
           processing_status?: string
+          share_enabled?: boolean
+          share_token?: string | null
           status?: string
           structural_analysis_json?: Json
           updated_at?: string
@@ -138,6 +142,8 @@ export type Database = {
           overhead_prompt?: string | null
           paused_at_step?: string | null
           processing_status?: string
+          share_enabled?: boolean
+          share_token?: string | null
           status?: string
           structural_analysis_json?: Json
           updated_at?: string
