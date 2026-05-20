@@ -204,7 +204,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, queued: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    if (scene_index >= 3) {
+    if (scene_index >= TOTAL_SCENES) {
       await sb.from("projects").update({ processing_status: "videos_completed", updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ success: true, done: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
