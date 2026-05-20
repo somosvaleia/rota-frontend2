@@ -55,6 +55,9 @@ export default function ProjectDetail() {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareSaving, setShareSaving] = useState(false);
   const [editingImage, setEditingImage] = useState<{ key: string; url: string; label: string } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [revisionNotes, setRevisionNotes] = useState("");
