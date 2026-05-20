@@ -1,7 +1,7 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil, PauseCircle, CheckCircle2, RotateCw, Save } from "lucide-react";
+import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil, PauseCircle, CheckCircle2, RotateCw, Save, Share2, Copy, Check } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
