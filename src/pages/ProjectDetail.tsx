@@ -1,7 +1,7 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil, PauseCircle, CheckCircle2, RotateCw, Save } from "lucide-react";
+import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil, PauseCircle, CheckCircle2, RotateCw, Save, Share2, Copy, Check } from "lucide-react";
 import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ import {
 import EditProjectDialog from "@/components/EditProjectDialog";
 import EditImageDialog from "@/components/EditImageDialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 
 const IMAGE_KEYS = [
   "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
@@ -53,6 +55,9 @@ export default function ProjectDetail() {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showShareDialog, setShowShareDialog] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const [shareSaving, setShareSaving] = useState(false);
   const [editingImage, setEditingImage] = useState<{ key: string; url: string; label: string } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [revisionNotes, setRevisionNotes] = useState("");
@@ -190,6 +195,15 @@ export default function ProjectDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => setShowShareDialog(true)}
+            >
+              <Share2 className="w-4 h-4" />
+              Compartilhar
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -390,6 +404,73 @@ export default function ProjectDetail() {
               {deleting ? "Excluindo..." : "Excluir"}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share dialog */}
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compartilhar projeto</DialogTitle>
+            <DialogDescription>
+              Ative o link público para que qualquer pessoa com o endereço possa visualizar o resultado (somente leitura). A planta baixa e as mídias geradas serão exibidas.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-sm font-medium">Link público ativado</p>
+                <p className="text-xs text-muted-foreground">Desative a qualquer momento para revogar o acesso.</p>
+              </div>
+              <Switch
+                checked={!!project.share_enabled}
+                disabled={shareSaving}
+                onCheckedChange={async (checked) => {
+                  setShareSaving(true);
+                  const { data, error } = await supabase
+                    .from("projects")
+                    .update({ share_enabled: checked } as any)
+                    .eq("id", project.id)
+                    .select()
+                    .single();
+                  setShareSaving(false);
+                  if (error) {
+                    toast.error("Erro ao atualizar compartilhamento.");
+                  } else {
+                    setProject(data);
+                    toast.success(checked ? "Compartilhamento ativado." : "Compartilhamento desativado.");
+                  }
+                }}
+              />
+            </div>
+            {project.share_enabled && project.share_token && (
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">Link de compartilhamento</label>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={`${window.location.origin}/share/${project.share_token}`}
+                    className="flex-1 px-3 py-2 text-sm rounded-md border bg-muted/40 font-mono truncate"
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 shrink-0"
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(`${window.location.origin}/share/${project.share_token}`);
+                      setShareCopied(true);
+                      toast.success("Link copiado!");
+                      setTimeout(() => setShareCopied(false), 2000);
+                    }}
+                  >
+                    {shareCopied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    Copiar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
