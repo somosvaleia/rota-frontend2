@@ -55,6 +55,8 @@ export type Database = {
           user_revision_notes: string
           video_b_url: string | null
           video_c_url: string | null
+          video_d_url: string | null
+          video_e_url: string | null
           video_url: string | null
           visual_identity_json: Json
         }
@@ -98,6 +100,8 @@ export type Database = {
           user_revision_notes?: string
           video_b_url?: string | null
           video_c_url?: string | null
+          video_d_url?: string | null
+          video_e_url?: string | null
           video_url?: string | null
           visual_identity_json?: Json
         }
@@ -141,6 +145,8 @@ export type Database = {
           user_revision_notes?: string
           video_b_url?: string | null
           video_c_url?: string | null
+          video_d_url?: string | null
+          video_e_url?: string | null
           video_url?: string | null
           visual_identity_json?: Json
         }

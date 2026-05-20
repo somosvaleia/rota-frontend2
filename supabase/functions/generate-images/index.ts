@@ -31,7 +31,7 @@ const MAX_REFERENCE_BYTES = 220_000;
 const IMAGE_SIZE_STEPS = [960, 768, 640, 512, 448, 384, 320];
 const MAX_DIRECT_IMAGE_REF_BYTES = 420_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
-const MAX_IMAGE_REFS_PER_CALL = 4;
+const MAX_IMAGE_REFS_PER_CALL = 5;
 const AI_IMAGE_TIMEOUT_MS = 75_000;
 const AI_TEXT_TIMEOUT_MS = 45_000;
 
@@ -319,7 +319,7 @@ async function generateImageGemini(
   refLabels: string[],
 ): Promise<string | null> {
   const labeledPrompt = refUrls.length > 0
-    ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
+    ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem de prioridade):\n${refLabels.map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nREGRA DE PRIORIDADE: as REFERÊNCIAS ENVIADAS PELO CLIENTE (planta, fachada, interior, corredor, caixa, vista superior, anexos) são VINCULANTES — copie cores, materiais, mobiliário, iluminação, comunicação visual, gôndolas e arquitetura DESSAS imagens. Não invente identidade visual nova; extraia tudo das referências enviadas. Mantenha CONSTÂNCIA TOTAL com elas.`
     : prompt;
 
   const parts: Array<Record<string, unknown>> = [{ text: labeledPrompt.substring(0, 18000) }];

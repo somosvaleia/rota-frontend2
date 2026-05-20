@@ -11,15 +11,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"] as const;
-// Imagens-base para cada vídeo: fachada, corredor central, vista geral
-const SOURCE_IMAGE_KEYS = ["img_a_url", "img_c_url", "img_e_url"] as const;
+const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url", "video_d_url", "video_e_url"] as const;
+// Imagens-base para cada vídeo: fachada, corredor, interior, vista drone, vista lateral
+const SOURCE_IMAGE_KEYS = ["img_a_url", "img_c_url", "img_e_url", "img_t_url", "img_s_url"] as const;
+const TOTAL_SCENES = VIDEO_KEYS.length;
 const POLL_DELAY_MS = 15_000;
 const MAX_POLL_ATTEMPTS = 80; // ~20 minutos por vídeo sem manter a função presa
 const SCENE_PROMPTS = [
   "Cinematic drone shot slowly approaching the storefront facade of a Brazilian neighborhood market. Smooth forward movement, golden hour lighting, photorealistic, no text overlays, no captions, maintain exact visual identity from the reference image.",
   "Smooth steadicam-style drone shot moving through the main aisle of a Brazilian neighborhood market between gondolas. Forward dolly motion, natural store lighting, photorealistic, no text overlays, maintain exact visual identity, products and signage from the reference image.",
   "Slow cinematic drone pull-back revealing the full interior of a Brazilian neighborhood market from above. Smooth ascending motion, photorealistic, natural lighting, no text overlays, maintain exact layout and visual identity from the reference image.",
+  "Cinematic aerial drone orbit around a Brazilian neighborhood market, slow 90-degree arc revealing the full building, parking lot and surroundings from a 3/4 high angle. Smooth lateral movement, photorealistic, golden hour, no text overlays, maintain exact architecture, facade, signage and footprint from the reference image.",
+  "Low-angle cinematic tracking shot moving sideways past the side facade of a Brazilian neighborhood market, revealing length, materials and entrance at the end. Smooth lateral dolly, natural daylight, photorealistic, no text overlays, maintain exact materials, colors and proportions from the reference image.",
 ];
 
 // ---------- OAuth: Service Account JWT -> access token ----------
@@ -201,7 +204,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ success: true, queued: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    if (scene_index >= 3) {
+    if (scene_index >= TOTAL_SCENES) {
       await sb.from("projects").update({ processing_status: "videos_completed", updated_at: new Date().toISOString() }).eq("id", project_id);
       return new Response(JSON.stringify({ success: true, done: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
