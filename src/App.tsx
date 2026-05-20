@@ -49,6 +49,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={session ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/share/:token" element={<SharedProject />} />
       <Route path="/" element={<ProtectedRoute session={session}><Index /></ProtectedRoute>} />
       <Route path="/novo-projeto" element={<ProtectedRoute session={session}><NewProject /></ProtectedRoute>} />
       <Route path="/projeto/:id" element={<ProtectedRoute session={session}><ProjectDetail /></ProtectedRoute>} />
