@@ -13,7 +13,7 @@ const IMAGE_KEYS = [
   "img_p_url", "img_q_url", "img_r_url", "img_s_url", "img_t_url",
 ];
 
-const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url"];
+const VIDEO_KEYS = ["video_url", "video_b_url", "video_c_url", "video_d_url", "video_e_url"];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
