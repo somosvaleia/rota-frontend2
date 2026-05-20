@@ -17,6 +17,8 @@ import {
 import EditProjectDialog from "@/components/EditProjectDialog";
 import EditImageDialog from "@/components/EditImageDialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 
 const IMAGE_KEYS = [
   "img_a_url", "img_b_url", "img_c_url", "img_d_url", "img_e_url",
