@@ -225,10 +225,30 @@ Deno.serve(async (req) => {
       [image_key]: newUrl, updated_at: new Date().toISOString(),
     }).eq("id", project_id);
 
+    // Se a imagem editada serve de base para um vídeo, dispara regeneração do vídeo correspondente
+    const VIDEO_SOURCE_KEYS = new Set(["img_a_url", "img_c_url", "img_e_url", "img_t_url", "img_s_url"]);
+    if (VIDEO_SOURCE_KEYS.has(image_key)) {
+      try {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/generate-videos`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+            apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+          },
+          body: JSON.stringify({ project_id, image_key }),
+        });
+        console.log(`[EDIT] vídeo agendado para regeneração (image_key=${image_key})`);
+      } catch (e) {
+        console.error("[EDIT] falha ao agendar vídeo:", e instanceof Error ? e.message : e);
+      }
+    }
+
     return new Response(
-      JSON.stringify({ success: true, new_url: newUrl }),
+      JSON.stringify({ success: true, new_url: newUrl, video_regenerating: VIDEO_SOURCE_KEYS.has(image_key) }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
+
   } catch (err) {
     return new Response(
       JSON.stringify({ error: err instanceof Error ? err.message : String(err) }),
