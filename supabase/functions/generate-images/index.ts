@@ -775,9 +775,10 @@ ${obs ? `OBSERVAÇÕES: ${obs}` : ""}
 ${plantaResumo ? `MAPA INTERNO EXTRAÍDO DA PLANTA — REFERÊNCIA ESTRUTURAL PRINCIPAL E OBRIGATÓRIA:\n${plantaResumo}\n` : ""}
 ${medidas ? `MEDIDAS EXTRAÍDAS DA PLANTA (OBRIGATÓRIO RESPEITAR):\n${medidas}\n` : ""}
 
-HIERARQUIA DE PRIORIDADE: FIDELIDADE À PLANTA > OBSERVAÇÕES DO CLIENTE > IDENTIDADE VISUAL > ESTÉTICA CRIATIVA.
+HIERARQUIA DE PRIORIDADE: VISTA SUPERIOR BASE APROVADA + PLANTA BAIXA > OBSERVAÇÕES DO CLIENTE > IDENTIDADE VISUAL > ESTÉTICA CRIATIVA.
 
-REGRA MESTRA: a imagem interna NÃO é livre. Ela deve ser uma câmera real colocada dentro da PLANTA/VISTA SUPERIOR BASE, como se o renderizador estivesse caminhando no mesmo layout aprovado.
+REGRA MESTRA — CONSTÂNCIA INTERNA OBJETIVA: a imagem interna NÃO é livre, NÃO é interpretação artística. Trate a VISTA SUPERIOR BASE e a PLANTA BAIXA como um mapa técnico literal: a câmera é colocada DENTRO desse mapa, no exato corredor, posição e direção indicados. Não invente paredes, corredores, caixas, setores, gôndolas, balcões nem aberturas que não existam no mapa. Não relocalize entrada, caixas ou açougue. A imagem deve poder ser sobreposta à planta sem contradição. Mesma quantidade, mesma orientação, mesma proporção, mesma identidade visual já estabelecida na fachada/vista superior.
+
 
 REGRAS DE CONSTÂNCIA ARQUITETÔNICA (OBRIGATÓRIO):
 1. A PLANTA BAIXA define EXATAMENTE: entrada, saída, quantidade e posição dos caixas, número de gôndolas centrais, ilhas promocionais, largura/comprimento dos corredores, direção de circulação, setores laterais e áreas de apoio.
