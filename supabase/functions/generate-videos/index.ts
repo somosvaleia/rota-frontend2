@@ -239,7 +239,7 @@ Deno.serve(async (req) => {
           const result = await veoPollOnce(token, operation_name);
           if (!result.done) {
             if (poll_attempt >= MAX_POLL_ATTEMPTS) throw new Error("Veo polling timeout");
-            scheduleNext({ project_id, scene_index, operation_name, poll_attempt: poll_attempt + 1 }, POLL_DELAY_MS);
+            scheduleNext({ project_id, scene_index, operation_name, poll_attempt: poll_attempt + 1, single_scene }, POLL_DELAY_MS);
             return;
           }
 
@@ -252,11 +252,11 @@ Deno.serve(async (req) => {
             await sb.from("projects").update({ [targetKey]: url, updated_at: new Date().toISOString() }).eq("id", project_id);
             console.log(`[veo] cena ${scene_index} OK: ${url}`);
           }
-          scheduleNext({ project_id, scene_index: scene_index + 1 });
+          if (!single_scene) scheduleNext({ project_id, scene_index: scene_index + 1 });
         } catch (e) {
           console.error(`[veo] cena ${scene_index} poll erro:`, e instanceof Error ? e.message : e);
           await sb.from("projects").update({ processing_status: `video_${scene_index + 1}_error`, updated_at: new Date().toISOString() }).eq("id", project_id);
-          scheduleNext({ project_id, scene_index: scene_index + 1 });
+          if (!single_scene) scheduleNext({ project_id, scene_index: scene_index + 1 });
         }
       })();
       if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work);
@@ -271,13 +271,14 @@ Deno.serve(async (req) => {
         const prompt = `${SCENE_PROMPTS[scene_index]} Market name: ${project.nome_mercado}.`;
         const opName = await veoStart(token, prompt, img);
         console.log(`[veo] cena ${scene_index} operação: ${opName}`);
-        scheduleNext({ project_id, scene_index, operation_name: opName, poll_attempt: 0 }, POLL_DELAY_MS);
+        scheduleNext({ project_id, scene_index, operation_name: opName, poll_attempt: 0, single_scene }, POLL_DELAY_MS);
       } catch (e) {
         console.error(`[veo] cena ${scene_index} erro:`, e instanceof Error ? e.message : e);
         await sb.from("projects").update({ processing_status: `video_${scene_index + 1}_error`, updated_at: new Date().toISOString() }).eq("id", project_id);
-        scheduleNext({ project_id, scene_index: scene_index + 1 });
+        if (!single_scene) scheduleNext({ project_id, scene_index: scene_index + 1 });
       }
     })();
+
 
     if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(work);
 
