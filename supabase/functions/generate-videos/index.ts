@@ -193,9 +193,21 @@ Deno.serve(async (req) => {
     const scene_index: number = typeof body.scene_index === "number" ? body.scene_index : -1;
     const operation_name: string | undefined = typeof body.operation_name === "string" ? body.operation_name : undefined;
     const poll_attempt: number = typeof body.poll_attempt === "number" ? body.poll_attempt : 0;
+    const single_scene: boolean = body.single_scene === true;
+    const only_image_key: string | undefined = typeof body.image_key === "string" ? body.image_key : undefined;
 
     if (!project_id) return new Response(JSON.stringify({ error: "project_id obrigatório" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     if (!PROJECT_ID) return new Response(JSON.stringify({ error: "GOOGLE_CLOUD_PROJECT_ID não configurado" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    // Regeneração pontual: vídeo correspondente a uma única imagem editada
+    if (only_image_key && scene_index < 0) {
+      const idx = SOURCE_IMAGE_KEYS.indexOf(only_image_key as any);
+      if (idx < 0) {
+        return new Response(JSON.stringify({ success: true, skipped: true, reason: "image_key sem vídeo associado" }), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      scheduleNext({ project_id, scene_index: idx, single_scene: true });
+      return new Response(JSON.stringify({ success: true, queued: true, scene: idx, single_scene: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
     // Início: agenda cena 0 e responde 202
     if (scene_index < 0) {
@@ -203,6 +215,7 @@ Deno.serve(async (req) => {
       scheduleNext({ project_id, scene_index: 0 });
       return new Response(JSON.stringify({ success: true, queued: true }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
 
     if (scene_index >= TOTAL_SCENES) {
       await sb.from("projects").update({ processing_status: "videos_completed", updated_at: new Date().toISOString() }).eq("id", project_id);
