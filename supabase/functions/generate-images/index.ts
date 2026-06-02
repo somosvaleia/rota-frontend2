@@ -1359,7 +1359,31 @@ Deno.serve(async (req) => {
           if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && !refsComFachada.planta) {
             console.warn(`[INTERNO] ${current.sceneName} sem planta enviada; usando apenas referências disponíveis e observações.`);
           }
-          let base64 = await generateImage(lovableAiKey, geminiKey, current.prompt, current.refUrls, current.refLabels);
+
+          // Para cenas internas: pede ao Gemini uma diretiva minuciosa por-cena
+          // ancorada na planta REAL, e prepende ao prompt da imagem.
+          let scenePromptFinal = current.prompt;
+          if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && geminiKey && refsComFachada.planta) {
+            try {
+              const baseScene = current.prompt.split("CENA:").slice(-1)[0]?.trim().substring(0, 1500) || current.sceneName;
+              const directive = await analyzeSceneFromFloorPlan(
+                geminiKey,
+                refsComFachada.planta as string,
+                plantaResumo || "",
+                current.sceneName,
+                baseScene,
+                (refsComFachada.vista_superior_gerada as string | undefined) || (project.overhead_image_url as string | undefined),
+              );
+              if (directive) {
+                scenePromptFinal = `DIRETIVA TÉCNICA ESPECÍFICA DESTA CENA — EXTRAÍDA DIRETAMENTE DA PLANTA BAIXA REAL (PRIORIDADE MÁXIMA, deve ser seguida à risca):\n${directive}\n\n--- FIM DA DIRETIVA ESPECÍFICA ---\n\n${current.prompt}`;
+                console.log(`[INTERNO] ${current.sceneName} → diretiva específica aplicada (${directive.length} chars)`);
+              }
+            } catch (e) {
+              console.warn(`[INTERNO] diretiva específica falhou para ${current.sceneName}:`, getErrorMessage(e));
+            }
+          }
+
+          let base64 = await generateImage(lovableAiKey, geminiKey, scenePromptFinal, current.refUrls, current.refLabels);
 
           if (base64) {
             base64 = await prepareGeneratedImage(base64);
