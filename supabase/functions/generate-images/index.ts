@@ -653,6 +653,80 @@ Se algo não estiver claro, diga "não identificado".`,
   return "";
 }
 
+// Análise per-cena: dado o resumo e a imagem da planta, devolve uma diretiva
+// MINUCIOSA e ESPECÍFICA daquela cena interna, ancorada na planta real.
+async function analyzeSceneFromFloorPlan(
+  apiKey: string,
+  plantaUrl: string,
+  plantaResumo: string,
+  sceneName: string,
+  baseScene: string,
+  overheadUrl?: string,
+): Promise<string> {
+  if (!plantaUrl) return "";
+  const plantaInline = dataUrlToInlineData(await urlToDataUrl(plantaUrl) || "");
+  if (!plantaInline) return "";
+  const overheadInline = overheadUrl ? dataUrlToInlineData(await urlToDataUrl(overheadUrl) || "") : null;
+
+  const parts: any[] = [
+    {
+      text: `Você é um arquiteto. Tenho a PLANTA BAIXA REAL deste supermercado${overheadInline ? " e a VISTA SUPERIOR 3D já aprovada" : ""}.
+
+RESUMO ESTRUTURAL JÁ EXTRAÍDO DA PLANTA:
+${plantaResumo || "(sem resumo prévio)"}
+
+CENA QUE PRECISO RENDERIZAR AGORA:
+NOME: "${sceneName}"
+DESCRIÇÃO BASE: ${baseScene}
+
+TAREFA: gere uma DIRETIVA TÉCNICA MINUCIOSA E ESPECÍFICA para esta cena interna, ancorada 100% na planta. Não invente nada que não esteja na planta. Responda em português, objetivo, em tópicos curtos:
+
+1. POSIÇÃO EXATA DA CÂMERA na planta (zona/quadrante: frente/fundos/esquerda/direita/centro; em qual corredor/área específica).
+2. DIREÇÃO DO OLHAR (para entrada / para fundos / para lateral X / para caixas etc) e altura (1.6m humano).
+3. O QUE DEVE APARECER no primeiro plano, plano médio e fundo — listando elementos REAIS visíveis na planta (caixas: quantos; gôndolas: quantas linhas e orientação; setores específicos detectados; balcões refrigerados; portas; etc).
+4. QUANTIDADES NUMÉRICAS EXATAS extraídas da planta para esta vista (nº de checkouts visíveis no enquadramento, nº de linhas de gôndola, nº de setores).
+5. PROPORÇÕES E LARGURAS aproximadas (largura do corredor, pé-direito visível, comprimento da fileira).
+6. O QUE NÃO PODE APARECER (elementos de outras áreas da planta que não estão neste enquadramento — proibido inventar).
+7. CONTINUIDADE com a fachada/vista superior já geradas (cores, materiais, identidade).
+
+Seja literal e técnico, como instrução para um render 3D que precisa SOBREPOR à planta sem contradição.`,
+    },
+    { inlineData: plantaInline },
+  ];
+  if (overheadInline) parts.push({ inlineData: overheadInline });
+
+  const requestBody = JSON.stringify({
+    contents: [{ role: "user", parts }],
+    generationConfig: { maxOutputTokens: 1500, temperature: 0.2 },
+  });
+
+  for (let i = 0; i < GEMINI_TEXT_MODELS.length; i++) {
+    const model = GEMINI_TEXT_MODELS[i];
+    try {
+      const res = await fetch(`${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestBody,
+        signal: timeoutSignal(AI_TEXT_TIMEOUT_MS),
+      });
+      if (!res.ok) {
+        const errText = await res.text();
+        const shouldFallback = res.status === 404 || (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(errText));
+        if (shouldFallback && i < GEMINI_TEXT_MODELS.length - 1) continue;
+        return "";
+      }
+      const data = await res.json();
+      const text = extractGeminiText(data);
+      if (text) console.log(`[CENA/${sceneName}] diretiva (${model}): ${text.substring(0, 180)}...`);
+      return text;
+    } catch (e) {
+      console.error(`[CENA/${sceneName}] ${model} erro:`, getErrorMessage(e));
+      if (i === GEMINI_TEXT_MODELS.length - 1) return "";
+    }
+  }
+  return "";
+}
+
 // ==================== REFS BUILDERS ====================
 
 function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?: string) {
