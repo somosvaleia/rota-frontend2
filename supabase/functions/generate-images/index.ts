@@ -16,6 +16,11 @@ const LOVABLE_IMAGE_MODELS = [
   "google/gemini-3.1-flash-image-preview",
   "google/gemini-2.5-flash-image",
 ];
+const LOVABLE_INTERNAL_IMAGE_MODELS = [
+  "google/gemini-3-pro-image-preview",
+  "google/gemini-3.1-flash-image-preview",
+  "google/gemini-2.5-flash-image",
+];
 const GEMINI_IMAGE_MODELS = [
   "gemini-3.1-flash-image-preview",
   "gemini-2.5-flash-image-preview",
@@ -27,9 +32,9 @@ const GEMINI_TEXT_MODELS = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
 ];
-const MAX_REFERENCE_BYTES = 220_000;
+const MAX_REFERENCE_BYTES = 480_000;
 const IMAGE_SIZE_STEPS = [960, 768, 640, 512, 448, 384, 320];
-const MAX_DIRECT_IMAGE_REF_BYTES = 420_000;
+const MAX_DIRECT_IMAGE_REF_BYTES = 480_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
 const MAX_IMAGE_REFS_PER_CALL = 5;
 const AI_IMAGE_TIMEOUT_MS = 75_000;
@@ -391,6 +396,7 @@ async function generateImageLovable(
   prompt: string,
   refUrls: string[],
   refLabels: string[],
+  models = LOVABLE_IMAGE_MODELS,
 ): Promise<string | null> {
   const labeledPrompt = refUrls.length > 0
     ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL).map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
@@ -405,8 +411,8 @@ async function generateImageLovable(
 
   console.log(`[LOVABLE/image] ${content.length - 1} refs, prompt ${labeledPrompt.length} chars`);
 
-  for (let i = 0; i < LOVABLE_IMAGE_MODELS.length; i++) {
-    const model = LOVABLE_IMAGE_MODELS[i];
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
     try {
       const res = await fetch(LOVABLE_AI_BASE, {
         method: "POST",
@@ -423,8 +429,8 @@ async function generateImageLovable(
           console.warn("[LOVABLE/image] créditos esgotados (402). Desabilitando gateway nesta execução e usando Gemini direto.");
           return null;
         }
-        if ((res.status === 429 || res.status === 503) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
-        if ((res.status === 404 || res.status === 400) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
+        if ((res.status === 429 || res.status === 503) && i < models.length - 1) continue;
+        if ((res.status === 404 || res.status === 400) && i < models.length - 1) continue;
         return null;
       }
 
@@ -450,14 +456,20 @@ async function generateImage(
   prompt: string,
   refUrls: string[],
   refLabels: string[],
+  options: { preferLovable?: boolean; lovableModels?: string[] } = {},
 ): Promise<string | null> {
+  if (options.preferLovable && lovableApiKey && !LOVABLE_DISABLED_THIS_RUN) {
+    const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels, options.lovableModels || LOVABLE_IMAGE_MODELS);
+    if (generated) return generated;
+    if (!LOVABLE_DISABLED_THIS_RUN) console.warn("[IMAGE] Lovable AI preferencial falhou; tentando Gemini direto como fallback.");
+  }
   if (geminiApiKey) {
     const generated = await generateImageGemini(geminiApiKey, prompt, refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL), refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL));
     if (generated) return generated;
     console.warn("[IMAGE] Gemini direto falhou; tentando Lovable AI Gateway como fallback.");
   }
   if (lovableApiKey && !LOVABLE_DISABLED_THIS_RUN) {
-    const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels);
+    const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels, options.lovableModels || LOVABLE_IMAGE_MODELS);
     if (generated) return generated;
     if (!LOVABLE_DISABLED_THIS_RUN) console.warn("[IMAGE] Lovable AI falhou.");
   }
@@ -725,6 +737,21 @@ Seja literal e técnico, como instrução para um render 3D que precisa SOBREPOR
     }
   }
   return "";
+}
+
+function buildInternalLayoutLock(sceneName: string, directive: string, plantaResumo: string): string {
+  return `CONTRATO DE FIDELIDADE ESPACIAL — CENA INTERNA "${sceneName}" (NÃO NEGOCIÁVEL):
+1. Gere a cena como se fosse uma câmera real colocada dentro da PLANTA BAIXA/VISTA SUPERIOR 3D aprovada, não como um mercado genérico.
+2. A geometria deve bater com o mapa: posição da entrada, caixas, corredor, gôndolas, setores, fundos, laterais, fluxo e escala relativa.
+3. Antes de gerar, faça uma verificação visual interna: "se eu olhar a planta de cima, esta foto se encaixa exatamente neste ponto?" Se não encaixar, corrija a composição.
+4. É proibido criar corredor, caixa, parede, ilha, setor, balcão ou abertura fora do que existe na planta/base 3D.
+5. Mantenha a cena reconhecível como o MESMO projeto já renderizado em vista superior: mesma planta, mesma identidade, mesma distribuição e mesma proporção.
+
+DIRETIVA TÉCNICA DA CENA EXTRAÍDA DA PLANTA/BASE 3D:
+${directive || "Use a leitura estrutural abaixo como fonte literal para posicionar a câmera e os elementos."}
+
+LEITURA ESTRUTURAL COMPLEMENTAR DA PLANTA:
+${plantaResumo || "Sem leitura textual disponível; use as imagens de referência anexadas como fonte principal."}`;
 }
 
 // ==================== REFS BUILDERS ====================
@@ -1363,7 +1390,8 @@ Deno.serve(async (req) => {
           // Para cenas internas: pede ao Gemini uma diretiva minuciosa por-cena
           // ancorada na planta REAL, e prepende ao prompt da imagem.
           let scenePromptFinal = current.prompt;
-          if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && geminiKey && refsComFachada.planta) {
+          const isInternalScene = INTERNAL_IMAGE_KEYS.has(current.imgKey);
+          if (isInternalScene && geminiKey && refsComFachada.planta) {
             try {
               const baseScene = current.prompt.split("CENA:").slice(-1)[0]?.trim().substring(0, 1500) || current.sceneName;
               const directive = await analyzeSceneFromFloorPlan(
@@ -1374,16 +1402,17 @@ Deno.serve(async (req) => {
                 baseScene,
                 (refsComFachada.vista_superior_gerada as string | undefined) || (project.overhead_image_url as string | undefined),
               );
-              if (directive) {
-                scenePromptFinal = `DIRETIVA TÉCNICA ESPECÍFICA DESTA CENA — EXTRAÍDA DIRETAMENTE DA PLANTA BAIXA REAL (PRIORIDADE MÁXIMA, deve ser seguida à risca):\n${directive}\n\n--- FIM DA DIRETIVA ESPECÍFICA ---\n\n${current.prompt}`;
-                console.log(`[INTERNO] ${current.sceneName} → diretiva específica aplicada (${directive.length} chars)`);
-              }
+              scenePromptFinal = `${buildInternalLayoutLock(current.sceneName, directive, plantaResumo)}\n\n--- PROMPT DA CENA APÓS O CONTRATO ESPACIAL ---\n\n${current.prompt}`;
+              console.log(`[INTERNO] ${current.sceneName} → contrato espacial aplicado (${directive.length} chars de diretiva)`);
             } catch (e) {
               console.warn(`[INTERNO] diretiva específica falhou para ${current.sceneName}:`, getErrorMessage(e));
+              scenePromptFinal = `${buildInternalLayoutLock(current.sceneName, "", plantaResumo)}\n\n--- PROMPT DA CENA APÓS O CONTRATO ESPACIAL ---\n\n${current.prompt}`;
             }
           }
 
-          let base64 = await generateImage(lovableAiKey, geminiKey, scenePromptFinal, current.refUrls, current.refLabels);
+          let base64 = await generateImage(lovableAiKey, geminiKey, scenePromptFinal, current.refUrls, current.refLabels, isInternalScene
+            ? { preferLovable: true, lovableModels: LOVABLE_INTERNAL_IMAGE_MODELS }
+            : {});
 
           if (base64) {
             base64 = await prepareGeneratedImage(base64);
