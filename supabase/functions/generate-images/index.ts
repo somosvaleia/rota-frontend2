@@ -1420,6 +1420,7 @@ Deno.serve(async (req) => {
                 current.sceneName,
                 baseScene,
                 (refsComFachada.vista_superior_gerada as string | undefined) || (project.overhead_image_url as string | undefined),
+                (refsComFachada.fachada_gerada as string | undefined) || (project.img_a_url as string | undefined),
               );
               scenePromptFinal = `${buildInternalLayoutLock(current.sceneName, directive, plantaResumo)}\n\n--- PROMPT DA CENA APÓS O CONTRATO ESPACIAL ---\n\n${current.prompt}`;
               console.log(`[INTERNO] ${current.sceneName} → contrato espacial aplicado (${directive.length} chars de diretiva)`);
