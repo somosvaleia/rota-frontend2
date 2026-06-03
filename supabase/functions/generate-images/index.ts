@@ -674,42 +674,56 @@ async function analyzeSceneFromFloorPlan(
   sceneName: string,
   baseScene: string,
   overheadUrl?: string,
+  fachadaGeradaUrl?: string,
 ): Promise<string> {
   if (!plantaUrl) return "";
   const plantaInline = dataUrlToInlineData(await urlToDataUrl(plantaUrl) || "");
   if (!plantaInline) return "";
   const overheadInline = overheadUrl ? dataUrlToInlineData(await urlToDataUrl(overheadUrl) || "") : null;
+  const fachadaInline = fachadaGeradaUrl ? dataUrlToInlineData(await urlToDataUrl(fachadaGeradaUrl) || "") : null;
+
+  const refsList = [
+    "1) PLANTA BAIXA REAL (mapa técnico literal — verdade absoluta de geometria, posições, quantidades, setores e fluxo)",
+    overheadInline ? "2) VISTA SUPERIOR 3D APROVADA (mesmo layout da planta já renderizado — verdade de materiais, cores, gôndolas e proporções vistas de cima)" : null,
+    fachadaInline ? `${overheadInline ? "3" : "2"}) FACHADA JÁ GERADA (1ª imagem aprovada — verdade de identidade visual: letreiro, nome, cores, materiais, vegetação, paisagem visível através das portas)` : null,
+  ].filter(Boolean).join("\n");
 
   const parts: any[] = [
     {
-      text: `Você é um arquiteto. Tenho a PLANTA BAIXA REAL deste supermercado${overheadInline ? " e a VISTA SUPERIOR 3D já aprovada" : ""}.
+      text: `Você é um arquiteto sênior. Exijo 100% de fidelidade entre a cena interna e os documentos abaixo. NÃO interprete — EXTRAIA.
+
+DOCUMENTOS DE REFERÊNCIA (fonte de verdade, em ordem):
+${refsList}
 
 RESUMO ESTRUTURAL JÁ EXTRAÍDO DA PLANTA:
-${plantaResumo || "(sem resumo prévio)"}
+${plantaResumo || "(sem resumo prévio — extraia diretamente das imagens)"}
 
-CENA QUE PRECISO RENDERIZAR AGORA:
+CENA A RENDERIZAR:
 NOME: "${sceneName}"
 DESCRIÇÃO BASE: ${baseScene}
 
-TAREFA: gere uma DIRETIVA TÉCNICA MINUCIOSA E ESPECÍFICA para esta cena interna, ancorada 100% na planta. Não invente nada que não esteja na planta. Responda em português, objetivo, em tópicos curtos:
+TAREFA: gere uma DIRETIVA TÉCNICA MINUCIOSA, ESPECÍFICA E FIDEDIGNA para esta cena, ancorada 100% nas referências acima. NADA pode ser inventado. Responda em português, em tópicos numerados curtos e objetivos:
 
-1. POSIÇÃO EXATA DA CÂMERA na planta (zona/quadrante: frente/fundos/esquerda/direita/centro; em qual corredor/área específica).
-2. DIREÇÃO DO OLHAR (para entrada / para fundos / para lateral X / para caixas etc) e altura (1.6m humano).
-3. O QUE DEVE APARECER no primeiro plano, plano médio e fundo — listando elementos REAIS visíveis na planta (caixas: quantos; gôndolas: quantas linhas e orientação; setores específicos detectados; balcões refrigerados; portas; etc).
-4. QUANTIDADES NUMÉRICAS EXATAS extraídas da planta para esta vista (nº de checkouts visíveis no enquadramento, nº de linhas de gôndola, nº de setores).
-5. PROPORÇÕES E LARGURAS aproximadas (largura do corredor, pé-direito visível, comprimento da fileira).
-6. O QUE NÃO PODE APARECER (elementos de outras áreas da planta que não estão neste enquadramento — proibido inventar).
-7. CONTINUIDADE com a fachada/vista superior já geradas (cores, materiais, identidade).
+1. POSIÇÃO EXATA DA CÂMERA (zona/quadrante da planta; corredor ou área específica; coordenada relativa "x% da largura, y% da profundidade").
+2. DIREÇÃO DO OLHAR (para entrada / fundos / lateral X / caixas) e altura de câmera (1.6 m, olhar humano).
+3. PRIMEIRO PLANO / PLANO MÉDIO / FUNDO — liste elementos REAIS visíveis na planta (nº de caixas, nº de linhas de gôndola e orientação, setores, balcões refrigerados, portas, ilhas, freezers, açougue, padaria, hortifruti).
+4. QUANTIDADES NUMÉRICAS EXATAS para esta vista (checkouts no enquadramento, fileiras de gôndola, setores).
+5. PROPORÇÕES E LARGURAS (largura do corredor em m, pé-direito visível, comprimento da fileira).
+6. IDENTIDADE VISUAL OBRIGATÓRIA da fachada já gerada (letreiro/nome/cores/materiais) que DEVE aparecer em placas internas, comunicação, fardas e portas de vidro do fundo.
+7. PAISAGEM VISÍVEL PELAS PORTAS/JANELAS — idêntica à fachada já gerada (mesma calçada, vegetação, estacionamento, entorno).
+8. O QUE NÃO PODE APARECER (elementos fora deste enquadramento — proibido inventar corredor, caixa, parede, setor, gôndola, balcão ou abertura inexistente).
+9. CHECKLIST FINAL: 3 critérios mensuráveis para validar que a imagem é sobreponível à planta/vista superior/fachada sem contradição.
 
-Seja literal e técnico, como instrução para um render 3D que precisa SOBREPOR à planta sem contradição.`,
+Seja literal, técnico e fidedigno — instrução para um render 3D que precisa SOBREPOR às três referências sem nenhuma contradição.`,
     },
     { inlineData: plantaInline },
   ];
   if (overheadInline) parts.push({ inlineData: overheadInline });
+  if (fachadaInline) parts.push({ inlineData: fachadaInline });
 
   const requestBody = JSON.stringify({
     contents: [{ role: "user", parts }],
-    generationConfig: { maxOutputTokens: 1500, temperature: 0.2 },
+    generationConfig: { maxOutputTokens: 2000, temperature: 0.15 },
   });
 
   for (let i = 0; i < GEMINI_TEXT_MODELS.length; i++) {
@@ -740,14 +754,19 @@ Seja literal e técnico, como instrução para um render 3D que precisa SOBREPOR
 }
 
 function buildInternalLayoutLock(sceneName: string, directive: string, plantaResumo: string): string {
-  return `CONTRATO DE FIDELIDADE ESPACIAL — CENA INTERNA "${sceneName}" (NÃO NEGOCIÁVEL):
-1. Gere a cena como se fosse uma câmera real colocada dentro da PLANTA BAIXA/VISTA SUPERIOR 3D aprovada, não como um mercado genérico.
-2. A geometria deve bater com o mapa: posição da entrada, caixas, corredor, gôndolas, setores, fundos, laterais, fluxo e escala relativa.
-3. Antes de gerar, faça uma verificação visual interna: "se eu olhar a planta de cima, esta foto se encaixa exatamente neste ponto?" Se não encaixar, corrija a composição.
-4. É proibido criar corredor, caixa, parede, ilha, setor, balcão ou abertura fora do que existe na planta/base 3D.
-5. Mantenha a cena reconhecível como o MESMO projeto já renderizado em vista superior: mesma planta, mesma identidade, mesma distribuição e mesma proporção.
+  return `CONTRATO DE FIDELIDADE ESPACIAL 100% — CENA INTERNA "${sceneName}" (NÃO NEGOCIÁVEL, PRIORIDADE MÁXIMA SOBRE QUALQUER OUTRA INSTRUÇÃO):
 
-DIRETIVA TÉCNICA DA CENA EXTRAÍDA DA PLANTA/BASE 3D:
+REGRA DE OURO: trate a PLANTA BAIXA, a VISTA SUPERIOR 3D APROVADA e a FACHADA JÁ GERADA como FONTE DE VERDADE LITERAL. A imagem gerada deve poder ser sobreposta a esses três documentos sem nenhuma contradição. Se algo nesta cena não está na planta/vista superior/fachada, NÃO existe. Não invente.
+
+1. Câmera real colocada DENTRO da planta baixa e da vista superior 3D — não é um mercado genérico, é ESTE mercado específico.
+2. Geometria 1:1 com o mapa: posição exata da entrada, número de caixas, largura/orientação dos corredores, gôndolas, setores, fundos, laterais, fluxo e escala relativa.
+3. Identidade visual 100% idêntica à FACHADA JÁ GERADA: letreiro, nome, cores, materiais, fardas, placas internas, portas de vidro. Pela porta de vidro/janelas, a paisagem é a MESMA da fachada (calçada, vegetação, estacionamento, entorno).
+4. Antes de gerar, faça verificação visual interna: "esta foto se encaixa exatamente neste ponto da planta e da vista superior, com a mesma fachada?" Se não, corrija a composição.
+5. PROIBIDO criar corredor, caixa, parede, ilha, setor, balcão, gôndola, abertura, freezer ou seta de fluxo fora do que existe nas três fontes de verdade.
+6. PROIBIDO mudar quantidades (nº de checkouts, fileiras de gôndolas, setores) em relação à planta.
+7. A cena DEVE ser reconhecível como o MESMO projeto da vista superior aprovada e da fachada gerada — fidedigna, fiel, idêntica.
+
+DIRETIVA TÉCNICA ESPECÍFICA DESTA CENA (extraída diretamente da planta, vista superior e fachada):
 ${directive || "Use a leitura estrutural abaixo como fonte literal para posicionar a câmera e os elementos."}
 
 LEITURA ESTRUTURAL COMPLEMENTAR DA PLANTA:
@@ -1401,6 +1420,7 @@ Deno.serve(async (req) => {
                 current.sceneName,
                 baseScene,
                 (refsComFachada.vista_superior_gerada as string | undefined) || (project.overhead_image_url as string | undefined),
+                (refsComFachada.fachada_gerada as string | undefined) || (project.img_a_url as string | undefined),
               );
               scenePromptFinal = `${buildInternalLayoutLock(current.sceneName, directive, plantaResumo)}\n\n--- PROMPT DA CENA APÓS O CONTRATO ESPACIAL ---\n\n${current.prompt}`;
               console.log(`[INTERNO] ${current.sceneName} → contrato espacial aplicado (${directive.length} chars de diretiva)`);
