@@ -739,6 +739,21 @@ Seja literal e técnico, como instrução para um render 3D que precisa SOBREPOR
   return "";
 }
 
+function buildInternalLayoutLock(sceneName: string, directive: string, plantaResumo: string): string {
+  return `CONTRATO DE FIDELIDADE ESPACIAL — CENA INTERNA "${sceneName}" (NÃO NEGOCIÁVEL):
+1. Gere a cena como se fosse uma câmera real colocada dentro da PLANTA BAIXA/VISTA SUPERIOR 3D aprovada, não como um mercado genérico.
+2. A geometria deve bater com o mapa: posição da entrada, caixas, corredor, gôndolas, setores, fundos, laterais, fluxo e escala relativa.
+3. Antes de gerar, faça uma verificação visual interna: "se eu olhar a planta de cima, esta foto se encaixa exatamente neste ponto?" Se não encaixar, corrija a composição.
+4. É proibido criar corredor, caixa, parede, ilha, setor, balcão ou abertura fora do que existe na planta/base 3D.
+5. Mantenha a cena reconhecível como o MESMO projeto já renderizado em vista superior: mesma planta, mesma identidade, mesma distribuição e mesma proporção.
+
+DIRETIVA TÉCNICA DA CENA EXTRAÍDA DA PLANTA/BASE 3D:
+${directive || "Use a leitura estrutural abaixo como fonte literal para posicionar a câmera e os elementos."}
+
+LEITURA ESTRUTURAL COMPLEMENTAR DA PLANTA:
+${plantaResumo || "Sem leitura textual disponível; use as imagens de referência anexadas como fonte principal."}`;
+}
+
 // ==================== REFS BUILDERS ====================
 
 function pushMandatoryRef(urls: string[], labels: string[], url?: string, label?: string) {
