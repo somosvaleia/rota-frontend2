@@ -1390,7 +1390,8 @@ Deno.serve(async (req) => {
           // Para cenas internas: pede ao Gemini uma diretiva minuciosa por-cena
           // ancorada na planta REAL, e prepende ao prompt da imagem.
           let scenePromptFinal = current.prompt;
-          if (INTERNAL_IMAGE_KEYS.has(current.imgKey) && geminiKey && refsComFachada.planta) {
+          const isInternalScene = INTERNAL_IMAGE_KEYS.has(current.imgKey);
+          if (isInternalScene && geminiKey && refsComFachada.planta) {
             try {
               const baseScene = current.prompt.split("CENA:").slice(-1)[0]?.trim().substring(0, 1500) || current.sceneName;
               const directive = await analyzeSceneFromFloorPlan(
@@ -1401,16 +1402,17 @@ Deno.serve(async (req) => {
                 baseScene,
                 (refsComFachada.vista_superior_gerada as string | undefined) || (project.overhead_image_url as string | undefined),
               );
-              if (directive) {
-                scenePromptFinal = `DIRETIVA TÉCNICA ESPECÍFICA DESTA CENA — EXTRAÍDA DIRETAMENTE DA PLANTA BAIXA REAL (PRIORIDADE MÁXIMA, deve ser seguida à risca):\n${directive}\n\n--- FIM DA DIRETIVA ESPECÍFICA ---\n\n${current.prompt}`;
-                console.log(`[INTERNO] ${current.sceneName} → diretiva específica aplicada (${directive.length} chars)`);
-              }
+              scenePromptFinal = `${buildInternalLayoutLock(current.sceneName, directive, plantaResumo)}\n\n--- PROMPT DA CENA APÓS O CONTRATO ESPACIAL ---\n\n${current.prompt}`;
+              console.log(`[INTERNO] ${current.sceneName} → contrato espacial aplicado (${directive.length} chars de diretiva)`);
             } catch (e) {
               console.warn(`[INTERNO] diretiva específica falhou para ${current.sceneName}:`, getErrorMessage(e));
+              scenePromptFinal = `${buildInternalLayoutLock(current.sceneName, "", plantaResumo)}\n\n--- PROMPT DA CENA APÓS O CONTRATO ESPACIAL ---\n\n${current.prompt}`;
             }
           }
 
-          let base64 = await generateImage(lovableAiKey, geminiKey, scenePromptFinal, current.refUrls, current.refLabels);
+          let base64 = await generateImage(lovableAiKey, geminiKey, scenePromptFinal, current.refUrls, current.refLabels, isInternalScene
+            ? { preferLovable: true, lovableModels: LOVABLE_INTERNAL_IMAGE_MODELS }
+            : {});
 
           if (base64) {
             base64 = await prepareGeneratedImage(base64);
