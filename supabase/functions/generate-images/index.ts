@@ -16,6 +16,11 @@ const LOVABLE_IMAGE_MODELS = [
   "google/gemini-3.1-flash-image-preview",
   "google/gemini-2.5-flash-image",
 ];
+const LOVABLE_INTERNAL_IMAGE_MODELS = [
+  "google/gemini-3-pro-image-preview",
+  "google/gemini-3.1-flash-image-preview",
+  "google/gemini-2.5-flash-image",
+];
 const GEMINI_IMAGE_MODELS = [
   "gemini-3.1-flash-image-preview",
   "gemini-2.5-flash-image-preview",
@@ -27,9 +32,9 @@ const GEMINI_TEXT_MODELS = [
   "gemini-2.5-flash",
   "gemini-2.0-flash",
 ];
-const MAX_REFERENCE_BYTES = 220_000;
+const MAX_REFERENCE_BYTES = 480_000;
 const IMAGE_SIZE_STEPS = [960, 768, 640, 512, 448, 384, 320];
-const MAX_DIRECT_IMAGE_REF_BYTES = 420_000;
+const MAX_DIRECT_IMAGE_REF_BYTES = 480_000;
 const MAX_OPTIMIZABLE_REF_BYTES = 2_500_000;
 const MAX_IMAGE_REFS_PER_CALL = 5;
 const AI_IMAGE_TIMEOUT_MS = 75_000;
