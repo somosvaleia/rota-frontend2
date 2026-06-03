@@ -396,6 +396,7 @@ async function generateImageLovable(
   prompt: string,
   refUrls: string[],
   refLabels: string[],
+  models = LOVABLE_IMAGE_MODELS,
 ): Promise<string | null> {
   const labeledPrompt = refUrls.length > 0
     ? `${prompt}\n\nREFERÊNCIAS VISUAIS FORNECIDAS (em ordem):\n${refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL).map((l, i) => `${i + 1}. ${l}`).join("\n")}\n\nUse essas imagens como referência ABSOLUTA de cores, formato, identidade visual, arquitetura e implantação. Mantenha CONSTÂNCIA TOTAL com elas.`
@@ -410,8 +411,8 @@ async function generateImageLovable(
 
   console.log(`[LOVABLE/image] ${content.length - 1} refs, prompt ${labeledPrompt.length} chars`);
 
-  for (let i = 0; i < LOVABLE_IMAGE_MODELS.length; i++) {
-    const model = LOVABLE_IMAGE_MODELS[i];
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
     try {
       const res = await fetch(LOVABLE_AI_BASE, {
         method: "POST",
@@ -428,8 +429,8 @@ async function generateImageLovable(
           console.warn("[LOVABLE/image] créditos esgotados (402). Desabilitando gateway nesta execução e usando Gemini direto.");
           return null;
         }
-        if ((res.status === 429 || res.status === 503) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
-        if ((res.status === 404 || res.status === 400) && i < LOVABLE_IMAGE_MODELS.length - 1) continue;
+        if ((res.status === 429 || res.status === 503) && i < models.length - 1) continue;
+        if ((res.status === 404 || res.status === 400) && i < models.length - 1) continue;
         return null;
       }
 
@@ -455,14 +456,20 @@ async function generateImage(
   prompt: string,
   refUrls: string[],
   refLabels: string[],
+  options: { preferLovable?: boolean; lovableModels?: string[] } = {},
 ): Promise<string | null> {
+  if (options.preferLovable && lovableApiKey && !LOVABLE_DISABLED_THIS_RUN) {
+    const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels, options.lovableModels || LOVABLE_IMAGE_MODELS);
+    if (generated) return generated;
+    if (!LOVABLE_DISABLED_THIS_RUN) console.warn("[IMAGE] Lovable AI preferencial falhou; tentando Gemini direto como fallback.");
+  }
   if (geminiApiKey) {
     const generated = await generateImageGemini(geminiApiKey, prompt, refUrls.slice(0, MAX_IMAGE_REFS_PER_CALL), refLabels.slice(0, MAX_IMAGE_REFS_PER_CALL));
     if (generated) return generated;
     console.warn("[IMAGE] Gemini direto falhou; tentando Lovable AI Gateway como fallback.");
   }
   if (lovableApiKey && !LOVABLE_DISABLED_THIS_RUN) {
-    const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels);
+    const generated = await generateImageLovable(lovableApiKey, prompt, refUrls, refLabels, options.lovableModels || LOVABLE_IMAGE_MODELS);
     if (generated) return generated;
     if (!LOVABLE_DISABLED_THIS_RUN) console.warn("[IMAGE] Lovable AI falhou.");
   }
