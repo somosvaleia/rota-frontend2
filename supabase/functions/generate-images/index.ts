@@ -16,8 +16,10 @@ const LOVABLE_IMAGE_MODELS = [
   "google/gemini-3.1-flash-image-preview",
   "google/gemini-2.5-flash-image",
 ];
+// gemini-3-pro-image-preview retorna 402 (sem créditos) no gateway atual; removido
+// para evitar latência e falha em cadeia. Mantemos 3.1-flash-image como principal,
+// que entrega a mesma constância visual com bom custo.
 const LOVABLE_INTERNAL_IMAGE_MODELS = [
-  "google/gemini-3-pro-image-preview",
   "google/gemini-3.1-flash-image-preview",
   "google/gemini-2.5-flash-image",
 ];
@@ -413,38 +415,53 @@ async function generateImageLovable(
 
   for (let i = 0; i < models.length; i++) {
     const model = models[i];
-    try {
-      const res = await fetch(LOVABLE_AI_BASE, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
-        signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
-      });
+    let attempt = 0;
+    const maxAttempts = 3; // 1ª + 2 retries com backoff em 429/503
+    while (attempt < maxAttempts) {
+      try {
+        const res = await fetch(LOVABLE_AI_BASE, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
+          signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
+        });
 
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[LOVABLE/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
-        if (res.status === 402) {
-          LOVABLE_DISABLED_THIS_RUN = true;
-          console.warn("[LOVABLE/image] créditos esgotados (402). Desabilitando gateway nesta execução e usando Gemini direto.");
+        if (!res.ok) {
+          const err = await res.text();
+          console.error(`[LOVABLE/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+          if (res.status === 402) {
+            LOVABLE_DISABLED_THIS_RUN = true;
+            console.warn("[LOVABLE/image] créditos esgotados (402). Desabilitando gateway nesta execução e usando Gemini direto.");
+            return null;
+          }
+          if (res.status === 429 || res.status === 503) {
+            attempt++;
+            if (attempt < maxAttempts) {
+              const wait = 6000 * attempt + Math.floor(Math.random() * 2000);
+              console.warn(`[LOVABLE/image] ${model} rate-limited; aguardando ${wait}ms (tentativa ${attempt + 1}/${maxAttempts})`);
+              await new Promise((r) => setTimeout(r, wait));
+              continue;
+            }
+            if (i < models.length - 1) break; // próximo modelo
+            return null;
+          }
+          if ((res.status === 404 || res.status === 400) && i < models.length - 1) break;
           return null;
         }
-        if ((res.status === 429 || res.status === 503) && i < models.length - 1) continue;
-        if ((res.status === 404 || res.status === 400) && i < models.length - 1) continue;
-        return null;
-      }
 
-      const data = await res.json();
-      const imageData = extractLovableImageData(data);
-      if (imageData) {
-        console.log(`[LOVABLE/image] ✓ imagem gerada com ${model}`);
-        return imageData;
+        const data = await res.json();
+        const imageData = extractLovableImageData(data);
+        if (imageData) {
+          console.log(`[LOVABLE/image] ✓ imagem gerada com ${model}`);
+          return imageData;
+        }
+        console.error(`[LOVABLE/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
+        return null;
+      } catch (e) {
+        console.error(`[LOVABLE/image] ${model} erro:`, getErrorMessage(e));
+        if (i === models.length - 1 && attempt >= maxAttempts - 1) return null;
+        break;
       }
-      console.error(`[LOVABLE/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
-      return null;
-    } catch (e) {
-      console.error(`[LOVABLE/image] ${model} erro:`, getErrorMessage(e));
-      if (i === LOVABLE_IMAGE_MODELS.length - 1) return null;
     }
   }
   return null;
@@ -738,6 +755,14 @@ Seja literal, técnico e fidedigno — instrução para um render 3D que precisa
       if (!res.ok) {
         const errText = await res.text();
         const shouldFallback = res.status === 404 || (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(errText));
+        if (res.status === 429 || res.status === 503) {
+          // backoff + tentar próximo modelo do fallback chain
+          const wait = 4000 + Math.floor(Math.random() * 2000);
+          console.warn(`[CENA/${sceneName}] ${model} rate-limited (${res.status}); aguardando ${wait}ms e tentando próximo modelo`);
+          await new Promise((r) => setTimeout(r, wait));
+          if (i < GEMINI_TEXT_MODELS.length - 1) continue;
+          return "";
+        }
         if (shouldFallback && i < GEMINI_TEXT_MODELS.length - 1) continue;
         return "";
       }
@@ -1191,8 +1216,11 @@ async function invokeNextStage(payload: Record<string, unknown>) {
   }
 }
 
-function scheduleNextStage(payload: Record<string, unknown>) {
-  const task = invokeNextStage(payload).catch((e) => console.error("Self-invoke agendado erro:", getErrorMessage(e)));
+function scheduleNextStage(payload: Record<string, unknown>, delayMs = 0) {
+  const task = (async () => {
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    await invokeNextStage(payload);
+  })().catch((e) => console.error("Self-invoke agendado erro:", getErrorMessage(e)));
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(task);
     return;
@@ -1451,7 +1479,8 @@ Deno.serve(async (req) => {
 
       const next = currentOffset + 1;
       if (next < scenes.length) {
-        scheduleNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo });
+        // 3s entre cenas: dá folga aos rate limits de Gemini/Lovable
+        scheduleNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo }, 3000);
         return new Response(JSON.stringify({ stage: "images", scene: next, total: scenes.length }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
