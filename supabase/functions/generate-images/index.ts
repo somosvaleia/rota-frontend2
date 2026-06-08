@@ -1216,8 +1216,11 @@ async function invokeNextStage(payload: Record<string, unknown>) {
   }
 }
 
-function scheduleNextStage(payload: Record<string, unknown>) {
-  const task = invokeNextStage(payload).catch((e) => console.error("Self-invoke agendado erro:", getErrorMessage(e)));
+function scheduleNextStage(payload: Record<string, unknown>, delayMs = 0) {
+  const task = (async () => {
+    if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
+    await invokeNextStage(payload);
+  })().catch((e) => console.error("Self-invoke agendado erro:", getErrorMessage(e)));
   if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) {
     EdgeRuntime.waitUntil(task);
     return;
