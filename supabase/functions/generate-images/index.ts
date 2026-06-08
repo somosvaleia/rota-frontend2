@@ -755,6 +755,14 @@ Seja literal, técnico e fidedigno — instrução para um render 3D que precisa
       if (!res.ok) {
         const errText = await res.text();
         const shouldFallback = res.status === 404 || (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(errText));
+        if (res.status === 429 || res.status === 503) {
+          // backoff + tentar próximo modelo do fallback chain
+          const wait = 4000 + Math.floor(Math.random() * 2000);
+          console.warn(`[CENA/${sceneName}] ${model} rate-limited (${res.status}); aguardando ${wait}ms e tentando próximo modelo`);
+          await new Promise((r) => setTimeout(r, wait));
+          if (i < GEMINI_TEXT_MODELS.length - 1) continue;
+          return "";
+        }
         if (shouldFallback && i < GEMINI_TEXT_MODELS.length - 1) continue;
         return "";
       }
