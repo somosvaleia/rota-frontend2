@@ -16,8 +16,10 @@ const LOVABLE_IMAGE_MODELS = [
   "google/gemini-3.1-flash-image-preview",
   "google/gemini-2.5-flash-image",
 ];
+// gemini-3-pro-image-preview retorna 402 (sem créditos) no gateway atual; removido
+// para evitar latência e falha em cadeia. Mantemos 3.1-flash-image como principal,
+// que entrega a mesma constância visual com bom custo.
 const LOVABLE_INTERNAL_IMAGE_MODELS = [
-  "google/gemini-3-pro-image-preview",
   "google/gemini-3.1-flash-image-preview",
   "google/gemini-2.5-flash-image",
 ];
