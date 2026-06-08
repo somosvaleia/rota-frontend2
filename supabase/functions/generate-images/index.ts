@@ -1479,7 +1479,8 @@ Deno.serve(async (req) => {
 
       const next = currentOffset + 1;
       if (next < scenes.length) {
-        scheduleNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo });
+        // 3s entre cenas: dá folga aos rate limits de Gemini/Lovable
+        scheduleNextStage({ project_id, stage: "images", scene_offset: next, floor_plan_summary: plantaResumo }, 3000);
         return new Response(JSON.stringify({ stage: "images", scene: next, total: scenes.length }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
