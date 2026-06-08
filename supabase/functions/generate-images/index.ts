@@ -415,38 +415,53 @@ async function generateImageLovable(
 
   for (let i = 0; i < models.length; i++) {
     const model = models[i];
-    try {
-      const res = await fetch(LOVABLE_AI_BASE, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
-        signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
-      });
+    let attempt = 0;
+    const maxAttempts = 3; // 1ª + 2 retries com backoff em 429/503
+    while (attempt < maxAttempts) {
+      try {
+        const res = await fetch(LOVABLE_AI_BASE, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model, messages: [{ role: "user", content }], modalities: ["image", "text"] }),
+          signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
+        });
 
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[LOVABLE/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
-        if (res.status === 402) {
-          LOVABLE_DISABLED_THIS_RUN = true;
-          console.warn("[LOVABLE/image] créditos esgotados (402). Desabilitando gateway nesta execução e usando Gemini direto.");
+        if (!res.ok) {
+          const err = await res.text();
+          console.error(`[LOVABLE/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+          if (res.status === 402) {
+            LOVABLE_DISABLED_THIS_RUN = true;
+            console.warn("[LOVABLE/image] créditos esgotados (402). Desabilitando gateway nesta execução e usando Gemini direto.");
+            return null;
+          }
+          if (res.status === 429 || res.status === 503) {
+            attempt++;
+            if (attempt < maxAttempts) {
+              const wait = 6000 * attempt + Math.floor(Math.random() * 2000);
+              console.warn(`[LOVABLE/image] ${model} rate-limited; aguardando ${wait}ms (tentativa ${attempt + 1}/${maxAttempts})`);
+              await new Promise((r) => setTimeout(r, wait));
+              continue;
+            }
+            if (i < models.length - 1) break; // próximo modelo
+            return null;
+          }
+          if ((res.status === 404 || res.status === 400) && i < models.length - 1) break;
           return null;
         }
-        if ((res.status === 429 || res.status === 503) && i < models.length - 1) continue;
-        if ((res.status === 404 || res.status === 400) && i < models.length - 1) continue;
-        return null;
-      }
 
-      const data = await res.json();
-      const imageData = extractLovableImageData(data);
-      if (imageData) {
-        console.log(`[LOVABLE/image] ✓ imagem gerada com ${model}`);
-        return imageData;
+        const data = await res.json();
+        const imageData = extractLovableImageData(data);
+        if (imageData) {
+          console.log(`[LOVABLE/image] ✓ imagem gerada com ${model}`);
+          return imageData;
+        }
+        console.error(`[LOVABLE/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
+        return null;
+      } catch (e) {
+        console.error(`[LOVABLE/image] ${model} erro:`, getErrorMessage(e));
+        if (i === models.length - 1 && attempt >= maxAttempts - 1) return null;
+        break;
       }
-      console.error(`[LOVABLE/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
-      return null;
-    } catch (e) {
-      console.error(`[LOVABLE/image] ${model} erro:`, getErrorMessage(e));
-      if (i === LOVABLE_IMAGE_MODELS.length - 1) return null;
     }
   }
   return null;
