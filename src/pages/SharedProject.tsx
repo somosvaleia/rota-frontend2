@@ -18,7 +18,7 @@ const IMAGE_KEYS = [
   "img_p_url","img_q_url","img_r_url","img_s_url","img_t_url",
 ] as const;
 
-const VIDEO_KEYS = ["video_url","video_b_url","video_c_url","video_d_url","video_e_url"] as const;
+const VIDEO_KEYS = ["video_url","video_b_url","video_c_url","video_d_url","video_e_url","video_f_url"] as const;
 
 const IMAGE_LABELS: Record<string, string> = {
   img_a_url: "Fachada (Vista Frontal)",
