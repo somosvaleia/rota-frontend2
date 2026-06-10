@@ -50,6 +50,12 @@ const REF_DATAURL_CACHE = new Map<string, string | null>();
 // Quando o Lovable AI Gateway retorna 402 (sem créditos), pular ele em todas
 // as próximas chamadas dessa execução para não desperdiçar latência/CPU.
 let LOVABLE_DISABLED_THIS_RUN = false;
+// Quando a API direta do Gemini retorna 429 repetidamente (quota Google esgotada),
+// marcamos para sinalizar bloqueio total junto com LOVABLE_DISABLED_THIS_RUN.
+let GEMINI_QUOTA_BLOCKED_THIS_RUN = false;
+function bothBackendsBlocked(): boolean {
+  return LOVABLE_DISABLED_THIS_RUN && GEMINI_QUOTA_BLOCKED_THIS_RUN;
+}
 
 function timeoutSignal(ms: number): AbortSignal | undefined {
   try {
