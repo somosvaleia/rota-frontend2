@@ -1509,7 +1509,28 @@ Deno.serve(async (req) => {
               console.log(`✓ ${current.sceneName} concluída`);
             }
           } else {
-            console.error(`✗ ${current.sceneName} — Gemini falhou`);
+            console.error(`✗ ${current.sceneName} — geração falhou`);
+            // Se ambos backends estão bloqueados por quota, pausa o projeto em vez
+            // de queimar todas as cenas seguintes em loop sem produzir nada.
+            if (bothBackendsBlocked()) {
+              await sb.from("projects").update({
+                processing_status: "paused",
+                paused_at_step: `scene_${currentOffset}`,
+                user_revision_notes: "IA bloqueada (Lovable AI sem créditos e Google Gemini com quota excedida). Aguarde a renovação ou recarregue créditos e clique em 'Continuar'.",
+                updated_at: new Date().toISOString(),
+              }).eq("id", project_id);
+              console.warn(`[SCENES] backends bloqueados — projeto pausado em scene_${currentOffset}`);
+              return new Response(JSON.stringify({ stage: "paused", reason: "quota_blocked", scene: currentOffset }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+            // Retry da MESMA cena até 3 vezes antes de avançar
+            const sceneRetry = Number(body.__scene_retry || 0);
+            if (sceneRetry < 2) {
+              const wait = 8000 * (sceneRetry + 1);
+              console.warn(`[SCENES] reagendando ${current.sceneName} (retry ${sceneRetry + 1}/2) em ${wait}ms`);
+              scheduleNextStage({ project_id, stage: "images", scene_offset: currentOffset, floor_plan_summary: plantaResumo, __scene_retry: sceneRetry + 1 }, wait);
+              return new Response(JSON.stringify({ stage: "images", scene: currentOffset, retry: sceneRetry + 1 }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+            console.warn(`[SCENES] ${current.sceneName} pulada após 3 tentativas`);
           }
         } catch (err) {
           console.error(`✗ ${current.sceneName}:`, getErrorMessage(err));
