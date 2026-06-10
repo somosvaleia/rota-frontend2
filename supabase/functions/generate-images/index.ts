@@ -361,39 +361,59 @@ async function generateImageGemini(
 
   for (let i = 0; i < GEMINI_IMAGE_MODELS.length; i++) {
     const model = GEMINI_IMAGE_MODELS[i];
-    try {
-      const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-        signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
-      });
+    let attempt = 0;
+    const maxAttempts = 3;
+    while (attempt < maxAttempts) {
+      try {
+        const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
+        });
 
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[GEMINI/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
-        const shouldFallback = res.status === 404 ||
-          (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(err));
-        if (shouldFallback && i < GEMINI_IMAGE_MODELS.length - 1) {
-          console.warn(`[GEMINI/image] fallback → ${GEMINI_IMAGE_MODELS[i + 1]}`);
-          continue;
+        if (!res.ok) {
+          const err = await res.text();
+          console.error(`[GEMINI/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+          if (res.status === 429 || res.status === 503) {
+            attempt++;
+            if (attempt < maxAttempts) {
+              const wait = 7000 * attempt + Math.floor(Math.random() * 3000);
+              console.warn(`[GEMINI/image] ${model} rate-limited; aguardando ${wait}ms (tentativa ${attempt + 1}/${maxAttempts})`);
+              await new Promise((r) => setTimeout(r, wait));
+              continue;
+            }
+            // último modelo + tentativas esgotadas → marca quota bloqueada
+            if (i === GEMINI_IMAGE_MODELS.length - 1) {
+              GEMINI_QUOTA_BLOCKED_THIS_RUN = true;
+              console.warn("[GEMINI/image] quota esgotada em todos os modelos; backend Gemini bloqueado nesta execução.");
+            }
+            break; // tenta próximo modelo
+          }
+          const shouldFallback = res.status === 404 ||
+            (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(err));
+          if (shouldFallback && i < GEMINI_IMAGE_MODELS.length - 1) {
+            console.warn(`[GEMINI/image] fallback → ${GEMINI_IMAGE_MODELS[i + 1]}`);
+            break;
+          }
+          return null;
         }
-        return null;
-      }
 
-      const data = await res.json();
-      logGeminiDiagnostics(`GEMINI/image:${model}`, data);
-      const imageData = extractGeminiImageData(data);
-      if (imageData) {
-        console.log(`[GEMINI/image] ✓ imagem gerada com ${model}`);
-        return imageData;
+        const data = await res.json();
+        logGeminiDiagnostics(`GEMINI/image:${model}`, data);
+        const imageData = extractGeminiImageData(data);
+        if (imageData) {
+          console.log(`[GEMINI/image] ✓ imagem gerada com ${model}`);
+          return imageData;
+        }
+        console.error(`[GEMINI/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
+        return null;
+      } catch (e) {
+        console.error(`[GEMINI/image] ${model} erro:`, getErrorMessage(e));
+        if (i === GEMINI_IMAGE_MODELS.length - 1 && attempt >= maxAttempts - 1) return null;
+        break;
       }
-      console.error(`[GEMINI/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
-      return null;
-    } catch (e) {
-      console.error(`[GEMINI/image] ${model} erro:`, getErrorMessage(e));
-      if (i === GEMINI_IMAGE_MODELS.length - 1) return null;
     }
   }
   return null;
