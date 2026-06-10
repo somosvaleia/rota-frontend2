@@ -1434,7 +1434,20 @@ Deno.serve(async (req) => {
       const refLabels: string[] = [];
       for (const asset of collectAssetRefs(refs)) pushMandatoryRef(refUrls, refLabels, asset.url, asset.label);
       let base64 = await generateImage(lovableAiKey, geminiKey, overheadPrompt, refUrls, refLabels);
-      if (!base64) throw new Error("Falha ao gerar vista superior base");
+      if (!base64) {
+        const quotaMsg = bothBackendsBlocked()
+          ? "IA bloqueada: Lovable AI sem créditos e Google Gemini com quota excedida. Adicione créditos no Cloud ou aguarde a renovação da cota Google e clique em 'Continuar' para retomar."
+          : "Falha temporária ao gerar a vista superior. Use 'Continuar' para tentar novamente.";
+        await sb.from("projects").update({
+          status: "erro",
+          processing_status: "paused",
+          paused_at_step: "overhead_failed",
+          user_revision_notes: quotaMsg,
+          updated_at: new Date().toISOString(),
+        }).eq("id", project_id);
+        console.error("[OVERHEAD] falhou — projeto pausado:", quotaMsg);
+        return new Response(JSON.stringify({ stage: "paused", reason: "overhead_failed", message: quotaMsg }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       base64 = await prepareGeneratedImage(base64);
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
       if (body.auto_continue === true) {
