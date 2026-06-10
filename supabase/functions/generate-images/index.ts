@@ -50,6 +50,12 @@ const REF_DATAURL_CACHE = new Map<string, string | null>();
 // Quando o Lovable AI Gateway retorna 402 (sem créditos), pular ele em todas
 // as próximas chamadas dessa execução para não desperdiçar latência/CPU.
 let LOVABLE_DISABLED_THIS_RUN = false;
+// Quando a API direta do Gemini retorna 429 repetidamente (quota Google esgotada),
+// marcamos para sinalizar bloqueio total junto com LOVABLE_DISABLED_THIS_RUN.
+let GEMINI_QUOTA_BLOCKED_THIS_RUN = false;
+function bothBackendsBlocked(): boolean {
+  return LOVABLE_DISABLED_THIS_RUN && GEMINI_QUOTA_BLOCKED_THIS_RUN;
+}
 
 function timeoutSignal(ms: number): AbortSignal | undefined {
   try {
@@ -355,39 +361,59 @@ async function generateImageGemini(
 
   for (let i = 0; i < GEMINI_IMAGE_MODELS.length; i++) {
     const model = GEMINI_IMAGE_MODELS[i];
-    try {
-      const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body,
-        signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
-      });
+    let attempt = 0;
+    const maxAttempts = 3;
+    while (attempt < maxAttempts) {
+      try {
+        const url = `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`;
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: timeoutSignal(AI_IMAGE_TIMEOUT_MS),
+        });
 
-      if (!res.ok) {
-        const err = await res.text();
-        console.error(`[GEMINI/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
-        const shouldFallback = res.status === 404 ||
-          (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(err));
-        if (shouldFallback && i < GEMINI_IMAGE_MODELS.length - 1) {
-          console.warn(`[GEMINI/image] fallback → ${GEMINI_IMAGE_MODELS[i + 1]}`);
-          continue;
+        if (!res.ok) {
+          const err = await res.text();
+          console.error(`[GEMINI/image] ${model} → ${res.status}: ${err.substring(0, 300)}`);
+          if (res.status === 429 || res.status === 503) {
+            attempt++;
+            if (attempt < maxAttempts) {
+              const wait = 7000 * attempt + Math.floor(Math.random() * 3000);
+              console.warn(`[GEMINI/image] ${model} rate-limited; aguardando ${wait}ms (tentativa ${attempt + 1}/${maxAttempts})`);
+              await new Promise((r) => setTimeout(r, wait));
+              continue;
+            }
+            // último modelo + tentativas esgotadas → marca quota bloqueada
+            if (i === GEMINI_IMAGE_MODELS.length - 1) {
+              GEMINI_QUOTA_BLOCKED_THIS_RUN = true;
+              console.warn("[GEMINI/image] quota esgotada em todos os modelos; backend Gemini bloqueado nesta execução.");
+            }
+            break; // tenta próximo modelo
+          }
+          const shouldFallback = res.status === 404 ||
+            (res.status === 400 && /not.?found|unsupported|invalid.*model|does not exist/i.test(err));
+          if (shouldFallback && i < GEMINI_IMAGE_MODELS.length - 1) {
+            console.warn(`[GEMINI/image] fallback → ${GEMINI_IMAGE_MODELS[i + 1]}`);
+            break;
+          }
+          return null;
         }
-        return null;
-      }
 
-      const data = await res.json();
-      logGeminiDiagnostics(`GEMINI/image:${model}`, data);
-      const imageData = extractGeminiImageData(data);
-      if (imageData) {
-        console.log(`[GEMINI/image] ✓ imagem gerada com ${model}`);
-        return imageData;
+        const data = await res.json();
+        logGeminiDiagnostics(`GEMINI/image:${model}`, data);
+        const imageData = extractGeminiImageData(data);
+        if (imageData) {
+          console.log(`[GEMINI/image] ✓ imagem gerada com ${model}`);
+          return imageData;
+        }
+        console.error(`[GEMINI/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
+        return null;
+      } catch (e) {
+        console.error(`[GEMINI/image] ${model} erro:`, getErrorMessage(e));
+        if (i === GEMINI_IMAGE_MODELS.length - 1 && attempt >= maxAttempts - 1) return null;
+        break;
       }
-      console.error(`[GEMINI/image] ${model} resposta sem imagem: ${JSON.stringify(data).substring(0, 300)}`);
-      return null;
-    } catch (e) {
-      console.error(`[GEMINI/image] ${model} erro:`, getErrorMessage(e));
-      if (i === GEMINI_IMAGE_MODELS.length - 1) return null;
     }
   }
   return null;
@@ -1408,7 +1434,20 @@ Deno.serve(async (req) => {
       const refLabels: string[] = [];
       for (const asset of collectAssetRefs(refs)) pushMandatoryRef(refUrls, refLabels, asset.url, asset.label);
       let base64 = await generateImage(lovableAiKey, geminiKey, overheadPrompt, refUrls, refLabels);
-      if (!base64) throw new Error("Falha ao gerar vista superior base");
+      if (!base64) {
+        const quotaMsg = bothBackendsBlocked()
+          ? "IA bloqueada: Lovable AI sem créditos e Google Gemini com quota excedida. Adicione créditos no Cloud ou aguarde a renovação da cota Google e clique em 'Continuar' para retomar."
+          : "Falha temporária ao gerar a vista superior. Use 'Continuar' para tentar novamente.";
+        await sb.from("projects").update({
+          status: "erro",
+          processing_status: "paused",
+          paused_at_step: "overhead_failed",
+          user_revision_notes: quotaMsg,
+          updated_at: new Date().toISOString(),
+        }).eq("id", project_id);
+        console.error("[OVERHEAD] falhou — projeto pausado:", quotaMsg);
+        return new Response(JSON.stringify({ stage: "paused", reason: "overhead_failed", message: quotaMsg }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       base64 = await prepareGeneratedImage(base64);
       const url = await uploadBase64Image(sb, project_id, "overhead_base", base64);
       if (body.auto_continue === true) {
@@ -1470,7 +1509,28 @@ Deno.serve(async (req) => {
               console.log(`✓ ${current.sceneName} concluída`);
             }
           } else {
-            console.error(`✗ ${current.sceneName} — Gemini falhou`);
+            console.error(`✗ ${current.sceneName} — geração falhou`);
+            // Se ambos backends estão bloqueados por quota, pausa o projeto em vez
+            // de queimar todas as cenas seguintes em loop sem produzir nada.
+            if (bothBackendsBlocked()) {
+              await sb.from("projects").update({
+                processing_status: "paused",
+                paused_at_step: `scene_${currentOffset}`,
+                user_revision_notes: "IA bloqueada (Lovable AI sem créditos e Google Gemini com quota excedida). Aguarde a renovação ou recarregue créditos e clique em 'Continuar'.",
+                updated_at: new Date().toISOString(),
+              }).eq("id", project_id);
+              console.warn(`[SCENES] backends bloqueados — projeto pausado em scene_${currentOffset}`);
+              return new Response(JSON.stringify({ stage: "paused", reason: "quota_blocked", scene: currentOffset }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+            // Retry da MESMA cena até 3 vezes antes de avançar
+            const sceneRetry = Number(body.__scene_retry || 0);
+            if (sceneRetry < 2) {
+              const wait = 8000 * (sceneRetry + 1);
+              console.warn(`[SCENES] reagendando ${current.sceneName} (retry ${sceneRetry + 1}/2) em ${wait}ms`);
+              scheduleNextStage({ project_id, stage: "images", scene_offset: currentOffset, floor_plan_summary: plantaResumo, __scene_retry: sceneRetry + 1 }, wait);
+              return new Response(JSON.stringify({ stage: "images", scene: currentOffset, retry: sceneRetry + 1 }), { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+            console.warn(`[SCENES] ${current.sceneName} pulada após 3 tentativas`);
           }
         } catch (err) {
           console.error(`✗ ${current.sceneName}:`, getErrorMessage(err));
