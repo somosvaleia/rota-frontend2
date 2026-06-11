@@ -394,20 +394,35 @@ export default function ProjectDetail() {
                       </Button>
                     </div>
                   </div>
-                  <div className="p-3 flex items-center justify-between">
-                    <p className="text-sm font-medium">{imageLabel(img.key)}</p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="gap-1 h-7 text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingImage({ key: img.key, url: img.url!, label: imageLabel(img.key) });
-                      }}
-                    >
-                      <Pencil className="w-3 h-3" />
-                      Editar
-                    </Button>
+                  <div className="p-3 flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium truncate">{imageLabel(img.key)}</p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1 h-7 text-xs"
+                        disabled={downloadingItem === img.url}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadSingle(img.url!, `${sanitize(imageLabel(img.key))}.${extFromUrl(img.url!, "jpg")}`);
+                        }}
+                      >
+                        {downloadingItem === img.url ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                        Baixar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1 h-7 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingImage({ key: img.key, url: img.url!, label: imageLabel(img.key) });
+                        }}
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Editar
+                      </Button>
+                    </div>
                   </div>
                 </motion.div>
               ))}
