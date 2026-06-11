@@ -500,7 +500,21 @@ export default function ProjectDetail() {
             <DialogDescription>Visualização em tamanho completo</DialogDescription>
           </DialogHeader>
           {lightboxUrl && (
-            <img src={lightboxUrl} alt="Ampliada" className="w-full h-auto rounded-lg" />
+            <div className="space-y-2">
+              <img src={lightboxUrl} alt="Ampliada" className="w-full h-auto rounded-lg" />
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  disabled={downloadingItem === lightboxUrl}
+                  onClick={() => downloadSingle(lightboxUrl, `imagem.${extFromUrl(lightboxUrl, "jpg")}`)}
+                >
+                  {downloadingItem === lightboxUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  Baixar imagem
+                </Button>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>
