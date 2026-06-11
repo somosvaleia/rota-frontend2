@@ -63,6 +63,87 @@ export default function ProjectDetail() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [revisionNotes, setRevisionNotes] = useState("");
   const [controlLoading, setControlLoading] = useState<string | null>(null);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  const [downloadingItem, setDownloadingItem] = useState<string | null>(null);
+
+  const sanitize = (s: string) => (s || "projeto").replace(/[^a-z0-9\-_]+/gi, "_").slice(0, 60);
+
+  const extFromUrl = (url: string, fallback: string) => {
+    try {
+      const u = new URL(url);
+      const m = u.pathname.match(/\.([a-z0-9]{2,5})$/i);
+      return m ? m[1].toLowerCase() : fallback;
+    } catch { return fallback; }
+  };
+
+  const downloadSingle = async (url: string, filename: string) => {
+    setDownloadingItem(url);
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      const objectUrl = URL.createObjectURL(blob);
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      toast.error("Erro ao baixar arquivo.");
+    } finally {
+      setDownloadingItem(null);
+    }
+  };
+
+  const downloadAllAsZip = async () => {
+    if (!project) return;
+    setDownloadingZip(true);
+    try {
+      const zip = new JSZip();
+      const folder = zip.folder(sanitize(project.nome_mercado)) || zip;
+
+      const tasks: Promise<void>[] = [];
+      if (project.overhead_image_url) {
+        tasks.push((async () => {
+          const r = await fetch(project.overhead_image_url);
+          const b = await r.blob();
+          folder.file(`vista_superior.${extFromUrl(project.overhead_image_url, "jpg")}`, b);
+        })());
+      }
+      images.forEach((img) => {
+        tasks.push((async () => {
+          const r = await fetch(img.url!);
+          const b = await r.blob();
+          folder.file(`${sanitize(imageLabel(img.key))}.${extFromUrl(img.url!, "jpg")}`, b);
+        })());
+      });
+      videos.forEach((v, i) => {
+        tasks.push((async () => {
+          const r = await fetch(v.url!);
+          const b = await r.blob();
+          folder.file(`video_${i + 1}.${extFromUrl(v.url!, "mp4")}`, b);
+        })());
+      });
+
+      await Promise.all(tasks);
+      const blob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      const objectUrl = URL.createObjectURL(blob);
+      a.href = objectUrl;
+      a.download = `${sanitize(project.nome_mercado)}_completo.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success("Download iniciado!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erro ao gerar zip.");
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
