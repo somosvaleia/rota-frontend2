@@ -438,8 +438,18 @@ export default function ProjectDetail() {
               {videos.map((v, i) => (
                 <div key={v.key} className="glass-card rounded-xl overflow-hidden">
                   <video src={v.url!} controls className="w-full" />
-                  <div className="p-3">
+                  <div className="p-3 flex items-center justify-between gap-2">
                     <p className="text-sm font-medium">Vídeo {i + 1}</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1 h-7 text-xs"
+                      disabled={downloadingItem === v.url}
+                      onClick={() => downloadSingle(v.url!, `video_${i + 1}.${extFromUrl(v.url!, "mp4")}`)}
+                    >
+                      {downloadingItem === v.url ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                      Baixar
+                    </Button>
                   </div>
                 </div>
               ))}
