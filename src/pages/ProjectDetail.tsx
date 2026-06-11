@@ -1,7 +1,8 @@
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil, PauseCircle, CheckCircle2, RotateCw, Save, Share2, Copy, Check } from "lucide-react";
+import { ArrowLeft, Download, Play, ExternalLink, Loader2, Trash2, Pencil, PauseCircle, CheckCircle2, RotateCw, Save, Share2, Copy, Check, FileArchive } from "lucide-react";
+import JSZip from "jszip";
 import AppLayout from "@/components/AppLayout";
 import StatusBadge from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -62,6 +63,87 @@ export default function ProjectDetail() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [revisionNotes, setRevisionNotes] = useState("");
   const [controlLoading, setControlLoading] = useState<string | null>(null);
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  const [downloadingItem, setDownloadingItem] = useState<string | null>(null);
+
+  const sanitize = (s: string) => (s || "projeto").replace(/[^a-z0-9\-_]+/gi, "_").slice(0, 60);
+
+  const extFromUrl = (url: string, fallback: string) => {
+    try {
+      const u = new URL(url);
+      const m = u.pathname.match(/\.([a-z0-9]{2,5})$/i);
+      return m ? m[1].toLowerCase() : fallback;
+    } catch { return fallback; }
+  };
+
+  const downloadSingle = async (url: string, filename: string) => {
+    setDownloadingItem(url);
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      const objectUrl = URL.createObjectURL(blob);
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      toast.error("Erro ao baixar arquivo.");
+    } finally {
+      setDownloadingItem(null);
+    }
+  };
+
+  const downloadAllAsZip = async () => {
+    if (!project) return;
+    setDownloadingZip(true);
+    try {
+      const zip = new JSZip();
+      const folder = zip.folder(sanitize(project.nome_mercado)) || zip;
+
+      const tasks: Promise<void>[] = [];
+      if (project.overhead_image_url) {
+        tasks.push((async () => {
+          const r = await fetch(project.overhead_image_url);
+          const b = await r.blob();
+          folder.file(`vista_superior.${extFromUrl(project.overhead_image_url, "jpg")}`, b);
+        })());
+      }
+      images.forEach((img) => {
+        tasks.push((async () => {
+          const r = await fetch(img.url!);
+          const b = await r.blob();
+          folder.file(`${sanitize(imageLabel(img.key))}.${extFromUrl(img.url!, "jpg")}`, b);
+        })());
+      });
+      videos.forEach((v, i) => {
+        tasks.push((async () => {
+          const r = await fetch(v.url!);
+          const b = await r.blob();
+          folder.file(`video_${i + 1}.${extFromUrl(v.url!, "mp4")}`, b);
+        })());
+      });
+
+      await Promise.all(tasks);
+      const blob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      const objectUrl = URL.createObjectURL(blob);
+      a.href = objectUrl;
+      a.download = `${sanitize(project.nome_mercado)}_completo.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objectUrl);
+      toast.success("Download iniciado!");
+    } catch (e) {
+      console.error(e);
+      toast.error("Erro ao gerar zip.");
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
 
   useEffect(() => {
     if (!id) return;
@@ -213,10 +295,10 @@ export default function ProjectDetail() {
               <Pencil className="w-4 h-4" />
               Editar
             </Button>
-            {project.status === "concluido" && (
-              <Button variant="outline" size="sm" className="gap-2">
-                <Download className="w-4 h-4" />
-                Exportar
+            {hasMedia && (
+              <Button variant="outline" size="sm" className="gap-2" onClick={downloadAllAsZip} disabled={downloadingZip}>
+                {downloadingZip ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileArchive className="w-4 h-4" />}
+                {downloadingZip ? "Gerando..." : "Baixar tudo (.zip)"}
               </Button>
             )}
             <Button
@@ -270,7 +352,19 @@ export default function ProjectDetail() {
 
         {project.overhead_image_url && (
           <div className="space-y-4 sm:space-y-6 mb-8">
-            <h2 className="font-display text-base sm:text-lg font-semibold">Vista Superior Base</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-display text-base sm:text-lg font-semibold">Vista Superior Base</h2>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2"
+                onClick={() => downloadSingle(project.overhead_image_url, `vista_superior.${extFromUrl(project.overhead_image_url, "jpg")}`)}
+                disabled={downloadingItem === project.overhead_image_url}
+              >
+                {downloadingItem === project.overhead_image_url ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Baixar
+              </Button>
+            </div>
             <div className="glass-card rounded-xl overflow-hidden cursor-pointer" onClick={() => setLightboxUrl(project.overhead_image_url)}>
               <img src={project.overhead_image_url} alt="Vista superior base do projeto" className="w-full max-h-[520px] object-cover" />
             </div>
@@ -300,20 +394,35 @@ export default function ProjectDetail() {
                       </Button>
                     </div>
                   </div>
-                  <div className="p-3 flex items-center justify-between">
-                    <p className="text-sm font-medium">{imageLabel(img.key)}</p>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="gap-1 h-7 text-xs"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingImage({ key: img.key, url: img.url!, label: imageLabel(img.key) });
-                      }}
-                    >
-                      <Pencil className="w-3 h-3" />
-                      Editar
-                    </Button>
+                  <div className="p-3 flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium truncate">{imageLabel(img.key)}</p>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1 h-7 text-xs"
+                        disabled={downloadingItem === img.url}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadSingle(img.url!, `${sanitize(imageLabel(img.key))}.${extFromUrl(img.url!, "jpg")}`);
+                        }}
+                      >
+                        {downloadingItem === img.url ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                        Baixar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1 h-7 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingImage({ key: img.key, url: img.url!, label: imageLabel(img.key) });
+                        }}
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Editar
+                      </Button>
+                    </div>
                   </div>
                 </motion.div>
               ))}
@@ -329,8 +438,18 @@ export default function ProjectDetail() {
               {videos.map((v, i) => (
                 <div key={v.key} className="glass-card rounded-xl overflow-hidden">
                   <video src={v.url!} controls className="w-full" />
-                  <div className="p-3">
+                  <div className="p-3 flex items-center justify-between gap-2">
                     <p className="text-sm font-medium">Vídeo {i + 1}</p>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="gap-1 h-7 text-xs"
+                      disabled={downloadingItem === v.url}
+                      onClick={() => downloadSingle(v.url!, `video_${i + 1}.${extFromUrl(v.url!, "mp4")}`)}
+                    >
+                      {downloadingItem === v.url ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                      Baixar
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -381,7 +500,21 @@ export default function ProjectDetail() {
             <DialogDescription>Visualização em tamanho completo</DialogDescription>
           </DialogHeader>
           {lightboxUrl && (
-            <img src={lightboxUrl} alt="Ampliada" className="w-full h-auto rounded-lg" />
+            <div className="space-y-2">
+              <img src={lightboxUrl} alt="Ampliada" className="w-full h-auto rounded-lg" />
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="gap-2"
+                  disabled={downloadingItem === lightboxUrl}
+                  onClick={() => downloadSingle(lightboxUrl, `imagem.${extFromUrl(lightboxUrl, "jpg")}`)}
+                >
+                  {downloadingItem === lightboxUrl ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  Baixar imagem
+                </Button>
+              </div>
+            </div>
           )}
         </DialogContent>
       </Dialog>
