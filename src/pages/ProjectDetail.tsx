@@ -352,7 +352,19 @@ export default function ProjectDetail() {
 
         {project.overhead_image_url && (
           <div className="space-y-4 sm:space-y-6 mb-8">
-            <h2 className="font-display text-base sm:text-lg font-semibold">Vista Superior Base</h2>
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="font-display text-base sm:text-lg font-semibold">Vista Superior Base</h2>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-2"
+                onClick={() => downloadSingle(project.overhead_image_url, `vista_superior.${extFromUrl(project.overhead_image_url, "jpg")}`)}
+                disabled={downloadingItem === project.overhead_image_url}
+              >
+                {downloadingItem === project.overhead_image_url ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                Baixar
+              </Button>
+            </div>
             <div className="glass-card rounded-xl overflow-hidden cursor-pointer" onClick={() => setLightboxUrl(project.overhead_image_url)}>
               <img src={project.overhead_image_url} alt="Vista superior base do projeto" className="w-full max-h-[520px] object-cover" />
             </div>
