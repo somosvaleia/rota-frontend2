@@ -295,10 +295,10 @@ export default function ProjectDetail() {
               <Pencil className="w-4 h-4" />
               Editar
             </Button>
-            {project.status === "concluido" && (
-              <Button variant="outline" size="sm" className="gap-2">
-                <Download className="w-4 h-4" />
-                Exportar
+            {hasMedia && (
+              <Button variant="outline" size="sm" className="gap-2" onClick={downloadAllAsZip} disabled={downloadingZip}>
+                {downloadingZip ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileArchive className="w-4 h-4" />}
+                {downloadingZip ? "Gerando..." : "Baixar tudo (.zip)"}
               </Button>
             )}
             <Button
